@@ -1,6 +1,6 @@
 [package]
 name = "vox"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 description = "TTS CLI for macOS — local voice synthesis with Qwen and system say"
 license = "MIT"
