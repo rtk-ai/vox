@@ -138,8 +138,19 @@ fn test_qwen_build_generate_command_to_file_with_ref_audio() {
 
 #[test]
 fn test_split_sentences_basic() {
+    // Short sentences are merged to reduce generation calls
     let result = QwenBackend::split_sentences("Hello world. How are you?");
-    assert_eq!(result, vec!["Hello world.", "How are you?"]);
+    assert_eq!(result, vec!["Hello world. How are you?"]);
+}
+
+#[test]
+fn test_split_sentences_long_splits() {
+    // Long sentences are kept separate
+    let long1 = "This is a very long sentence that contains enough characters to exceed the minimum chunk threshold for splitting.";
+    let long2 = "And here is another lengthy sentence that also exceeds the threshold so they should remain separate chunks.";
+    let text = format!("{long1} {long2}");
+    let result = QwenBackend::split_sentences(&text);
+    assert_eq!(result.len(), 2);
 }
 
 #[test]
@@ -150,16 +161,11 @@ fn test_split_sentences_no_punctuation() {
 
 #[test]
 fn test_split_sentences_multiple_types() {
+    // Short sentences are merged to reduce generation overhead
     let result = QwenBackend::split_sentences("Bonjour! Comment vas-tu? Bien. Merci; au revoir");
     assert_eq!(
         result,
-        vec![
-            "Bonjour!",
-            "Comment vas-tu?",
-            "Bien.",
-            "Merci;",
-            "au revoir"
-        ]
+        vec!["Bonjour! Comment vas-tu? Bien. Merci; au revoir"]
     );
 }
 

@@ -5,4 +5,5 @@ pub mod config;
 pub mod db;
 pub mod init;
 pub mod input;
+pub mod server;
 pub mod stt;

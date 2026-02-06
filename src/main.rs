@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use vox::backend::{self, SpeakOptions};
 use vox::chat::{self, ChatConfig};
 use vox::config::DEFAULT_BACKEND;
-use vox::{clone, db, init, input};
+use vox::{clone, db, init, input, server};
 
 #[derive(Parser)]
 #[command(name = "vox", version, about = "Voice Command — read text aloud")]
@@ -71,6 +71,11 @@ enum Commands {
         #[arg(short = 'l', long)]
         lang: Option<String>,
     },
+    /// Manage the TTS server (keeps model warm for fast generation)
+    Server {
+        #[command(subcommand)]
+        action: ServerAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -107,6 +112,23 @@ enum CloneAction {
 }
 
 #[derive(Subcommand)]
+enum ServerAction {
+    /// Start the TTS server (loads model into memory for fast generation)
+    Start {
+        /// Model to pre-load (default: Qwen3-TTS 0.6B bf16)
+        #[arg(long)]
+        model: Option<String>,
+        /// Port to listen on (default: 9876)
+        #[arg(long)]
+        port: Option<u16>,
+    },
+    /// Stop the TTS server
+    Stop,
+    /// Show server status
+    Status,
+}
+
+#[derive(Subcommand)]
 enum ConfigAction {
     /// Show current preferences
     Show,
@@ -130,6 +152,7 @@ fn main() -> Result<()> {
         Some(Commands::Stats) => handle_stats(),
         Some(Commands::Init) => handle_init(),
         Some(Commands::Chat { voice, lang }) => handle_chat(voice, lang),
+        Some(Commands::Server { action }) => handle_server(action),
         None => handle_speak(cli),
     }
 }
@@ -331,6 +354,14 @@ fn handle_init() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn handle_server(action: ServerAction) -> Result<()> {
+    match action {
+        ServerAction::Start { model, port } => server::start(model.as_deref(), port),
+        ServerAction::Stop => server::stop(),
+        ServerAction::Status => server::status(),
+    }
 }
 
 fn handle_stats() -> Result<()> {
