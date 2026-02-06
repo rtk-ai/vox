@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/rtk-ai/vox/compare/v0.2.0...v0.2.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* release workflow binary upload when called via workflow_call ([#10](https://github.com/rtk-ai/vox/issues/10)) ([a215c52](https://github.com/rtk-ai/vox/commit/a215c52fc8062b804a3682fdda53a1599573ff07))
+
 ## [0.2.0](https://github.com/rtk-ai/vox/compare/v0.1.0...v0.2.0) (2026-02-06)
 
 
