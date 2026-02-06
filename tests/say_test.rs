@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use vox::backend::say::SayBackend;
 use vox::backend::{SpeakOptions, TtsBackend};
 

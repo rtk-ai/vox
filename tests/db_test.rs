@@ -18,6 +18,7 @@ fn test_get_preferences_default() {
     assert!(prefs.rate.is_none());
     assert!(prefs.gender.is_none());
     assert!(prefs.style.is_none());
+    assert!(prefs.model.is_none());
 }
 
 #[test]
@@ -32,14 +33,14 @@ fn test_set_and_get_preference() {
 #[test]
 fn test_set_multiple_preferences() {
     let conn = db::open_in_memory().unwrap();
-    db::set_preference(&conn, "backend", "qwen").unwrap();
+    db::set_preference(&conn, "backend", "qwen-native").unwrap();
     db::set_preference(&conn, "lang", "en").unwrap();
     db::set_preference(&conn, "gender", "feminine").unwrap();
     db::set_preference(&conn, "style", "warm").unwrap();
     db::set_preference(&conn, "rate", "150").unwrap();
 
     let prefs = db::get_preferences(&conn).unwrap();
-    assert_eq!(prefs.backend.as_deref(), Some("qwen"));
+    assert_eq!(prefs.backend.as_deref(), Some("qwen-native"));
     assert_eq!(prefs.lang.as_deref(), Some("en"));
     assert_eq!(prefs.gender.as_deref(), Some("feminine"));
     assert_eq!(prefs.style.as_deref(), Some("warm"));

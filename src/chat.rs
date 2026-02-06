@@ -111,7 +111,7 @@ pub fn record_until_enter(output_path: &str) -> Result<()> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .context("Failed to start rec (sox). Is sox installed? (brew install sox)")?;
+        .context(crate::clone::sox_install_hint())?;
 
     // Wait for Enter
     let stdin = io::stdin();

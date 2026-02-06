@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 
 use super::{SpeakOptions, TtsBackend};
+use crate::audio;
 
 pub struct QwenBackend;
 
@@ -14,15 +15,11 @@ const DEFAULT_MODEL: &str = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16";
 const MIN_CHUNK_CHARS: usize = 120;
 
 impl QwenBackend {
-    fn model_name(opts: &SpeakOptions) -> &str {
-        opts.model.as_deref().unwrap_or(DEFAULT_MODEL)
-    }
-
     pub fn build_generate_command(text: &str, opts: &SpeakOptions) -> Command {
         let mut cmd = Command::new("python3");
         cmd.arg("-m").arg("mlx_audio.tts.generate");
         cmd.arg("--text").arg(text);
-        cmd.arg("--model").arg(Self::model_name(opts));
+        cmd.arg("--model").arg(DEFAULT_MODEL);
         cmd.arg("--play");
         cmd.arg("--stream");
         Self::apply_voice_opts(&mut cmd, opts);
@@ -39,7 +36,7 @@ impl QwenBackend {
         let mut cmd = Command::new("python3");
         cmd.arg("-m").arg("mlx_audio.tts.generate");
         cmd.arg("--text").arg(text);
-        cmd.arg("--model").arg(Self::model_name(opts));
+        cmd.arg("--model").arg(DEFAULT_MODEL);
         Self::apply_voice_opts(&mut cmd, opts);
         cmd.current_dir(output_dir);
         cmd
@@ -60,11 +57,8 @@ impl QwenBackend {
         }
     }
 
-    /// Split text into chunks for generation.
-    ///
-    /// Merges adjacent small sentences to reduce the number of subprocess calls.
-    /// Each call to python3 pays ~5-15s of model-loading overhead, so fewer
-    /// calls with larger chunks is a major performance win.
+    /// Split text into sentences for chunked generation.
+    /// Small consecutive sentences are merged to reduce subprocess overhead.
     pub fn split_sentences(text: &str) -> Vec<String> {
         let mut raw = Vec::new();
         let mut current = String::new();
@@ -102,17 +96,7 @@ impl QwenBackend {
         if !buf.is_empty() {
             merged.push(buf);
         }
-
         merged
-    }
-
-    /// Spawn async generation for a chunk.
-    fn spawn_generate_to_file(text: &str, opts: &SpeakOptions, output_dir: &Path) -> Result<Child> {
-        Self::build_generate_command_to_file(text, opts, output_dir)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("failed to spawn mlx_audio generation")
     }
 }
 
@@ -135,16 +119,6 @@ fn find_wav_in_dir(dir: &Path) -> Result<PathBuf> {
     wavs.into_iter()
         .next()
         .context("no audio_*.wav file found in chunk directory")
-}
-
-/// Spawn `afplay` to play a WAV file (macOS).
-fn play_wav(path: &Path) -> Result<Child> {
-    Command::new("afplay")
-        .arg(path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("failed to spawn afplay")
 }
 
 /// Remove orphaned `audio_*.wav` files from the current working directory.
@@ -209,15 +183,17 @@ impl TtsBackend for QwenBackend {
 
         // Start playing chunk 0
         let wav0 = find_wav_in_dir(&chunk_dirs[0])?;
-        let mut play_child = play_wav(&wav0)?;
+        let mut play_handle = audio::play_wav_async(&wav0)?;
 
         // Start generating chunk 1 (if exists)
-        let mut gen_child: Option<Child> = if chunks.len() > 1 {
-            Some(Self::spawn_generate_to_file(
-                &chunks[1],
-                opts,
-                &chunk_dirs[1],
-            )?)
+        let mut gen_child: Option<std::process::Child> = if chunks.len() > 1 {
+            Some(
+                Self::build_generate_command_to_file(&chunks[1], opts, &chunk_dirs[1])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .context("failed to spawn generation for chunk 1")?,
+            )
         } else {
             None
         };
@@ -235,37 +211,26 @@ impl TtsBackend for QwenBackend {
             }
 
             // Wait for playback of chunk i-1 to finish
-            let play_status = play_child
-                .wait()
-                .context(format!("playback failed for chunk {}", i - 1))?;
-            if !play_status.success() {
-                anyhow::bail!(
-                    "afplay failed for chunk {} with status {play_status}",
-                    i - 1
-                );
-            }
+            play_handle.wait()?;
 
             // Start playing chunk i
             let wav_i = find_wav_in_dir(&chunk_dirs[i])?;
-            play_child = play_wav(&wav_i)?;
+            play_handle = audio::play_wav_async(&wav_i)?;
 
             // Start generating chunk i+1 (if exists)
             if i + 1 < chunks.len() {
-                gen_child = Some(Self::spawn_generate_to_file(
-                    &chunks[i + 1],
-                    opts,
-                    &chunk_dirs[i + 1],
-                )?);
+                gen_child = Some(
+                    Self::build_generate_command_to_file(&chunks[i + 1], opts, &chunk_dirs[i + 1])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
+                        .context(format!("failed to spawn generation for chunk {}", i + 1))?,
+                );
             }
         }
 
         // Wait for last playback to finish
-        let play_status = play_child
-            .wait()
-            .context("playback failed for last chunk")?;
-        if !play_status.success() {
-            anyhow::bail!("afplay failed for last chunk with status {play_status}");
-        }
+        play_handle.wait()?;
 
         // tempdir is cleaned up automatically on drop
         Ok(())

@@ -33,6 +33,7 @@ fn test_unknown_backend() {
         .stderr(predicate::str::contains("Unknown backend"));
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn test_list_voices_say() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -44,6 +45,7 @@ fn test_list_voices_say() {
         .success();
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn test_list_voices_qwen() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -54,6 +56,18 @@ fn test_list_voices_qwen() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Chelsie"));
+}
+
+#[test]
+fn test_list_voices_qwen_native() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    Command::cargo_bin("vox")
+        .unwrap()
+        .env("VOX_DB_PATH", tmp.path())
+        .args(["--backend", "qwen-native", "--list-voices"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("voice clones"));
 }
 
 #[test]
@@ -70,6 +84,7 @@ fn test_no_text_no_stdin() {
         );
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn test_stdin_pipe() {
     let tmp = tempfile::NamedTempFile::new().unwrap();

@@ -9,6 +9,25 @@ use crate::db;
 
 const VALID_AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg", "m4a"];
 
+pub fn sox_install_hint() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "Failed to run rec (sox). Is sox installed? (brew install sox)"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "Failed to run rec (sox). Is sox installed? (sudo apt install sox)"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "Failed to run rec (sox). Is sox installed? (choco install sox)"
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        "Failed to run rec (sox). Is sox installed?"
+    }
+}
+
 pub fn validate_audio(path: &str) -> Result<()> {
     let p = Path::new(path);
     if !p.exists() {
@@ -48,7 +67,7 @@ pub fn record_clone(name: &str, duration: u32) -> Result<String> {
     eprintln!("Recording {duration}s of audio... Speak now!");
     let status = build_record_command(&output_str, duration)
         .status()
-        .context("Failed to run rec (sox). Is sox installed? (brew install sox)")?;
+        .context(sox_install_hint())?;
     if !status.success() {
         bail!("Recording failed with status {status}");
     }

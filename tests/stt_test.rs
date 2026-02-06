@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use std::ffi::OsStr;
 
 use vox::stt;

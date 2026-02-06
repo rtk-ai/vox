@@ -2,11 +2,16 @@
 name = "vox"
 version = "0.1.0"
 edition = "2024"
-description = "TTS CLI for macOS — local voice synthesis with Qwen and system say"
+description = "Cross-platform TTS CLI — local voice synthesis with Qwen and system say"
 license = "MIT"
 repository = "https://github.com/rtk-ai/vox"
-keywords = ["tts", "voice", "speech", "macos", "cli"]
+keywords = ["tts", "voice", "speech", "cli"]
 categories = ["command-line-utilities", "multimedia::audio"]
+
+[features]
+default = []
+metal = ["qwen3-tts/metal", "qwen3-tts/accelerate"]
+cuda = ["qwen3-tts/cuda"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -17,7 +22,8 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
-qwen3-tts = { git = "https://github.com/TrevorS/qwen3-tts-rs", features = ["metal", "accelerate", "hub"] }
+rodio = "0.20"
+qwen3-tts = { git = "https://github.com/TrevorS/qwen3-tts-rs", features = ["hub"], default-features = false }
 
 [dev-dependencies]
 assert_cmd = "2"

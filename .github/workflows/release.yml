@@ -22,9 +22,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-release:
-    name: Build and upload release assets
-    runs-on: macos-latest
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            features: metal
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            features: metal
+            archive: tar.gz
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            features: ""
+            archive: tar.gz
+            deps: libasound2-dev
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            features: ""
+            archive: zip
 
     steps:
       - name: Checkout
@@ -33,37 +54,48 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-apple-darwin,aarch64-apple-darwin
+          targets: ${{ matrix.target }}
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Install system deps (Linux)
+        if: matrix.deps != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.deps }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czvf ../../../vox-${{ matrix.target }}.${{ matrix.archive }} vox
+          cd ../../..
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../vox-${{ matrix.target }}.zip vox.exe
+          cd ../../..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-release-
+          name: vox-${{ matrix.target }}
+          path: vox-${{ matrix.target }}.${{ matrix.archive }}
 
-      - name: Build aarch64-apple-darwin
-        run: cargo build --release --target aarch64-apple-darwin
+  release:
+    name: Create Release
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Build x86_64-apple-darwin
-        run: cargo build --release --target x86_64-apple-darwin
-
-      - name: Package
-        run: |
-          mkdir -p release
-          cd target/aarch64-apple-darwin/release
-          tar -czvf ../../../release/vox-aarch64-apple-darwin.tar.gz vox
-          cd ../../../target/x86_64-apple-darwin/release
-          tar -czvf ../../../release/vox-x86_64-apple-darwin.tar.gz vox
-
-      - name: Create checksums
-        run: |
-          cd release
-          shasum -a 256 *.tar.gz > checksums.txt
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Get version
         id: version
@@ -75,6 +107,16 @@ jobs:
           elif [ "${{ github.event_name }}" = "release" ]; then
             echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
           fi
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release/ \;
+
+      - name: Create checksums
+        run: |
+          cd release
+          sha256sum * > checksums.txt
 
       - name: Upload Release Assets
         if: github.event_name == 'release' || github.event_name == 'workflow_call'

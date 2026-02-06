@@ -10,13 +10,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    runs-on: macos-latest
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Metal)
+            os: macos-latest
+            features: metal
+            deps: ""
+          - name: Linux (CPU)
+            os: ubuntu-latest
+            features: ""
+            deps: libasound2-dev
+          - name: Windows (CPU)
+            os: windows-latest
+            features: ""
+            deps: ""
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system deps (Linux)
+        if: matrix.deps != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.deps }}
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -25,34 +47,16 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-check-
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
+
+      - name: Run tests
+        run: cargo test ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
 
       - name: Check formatting
         run: cargo fmt -- --check
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
-
-  test:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-test-
-
-      - name: Run tests
-        run: cargo test
+        run: cargo clippy ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }} -- -D warnings

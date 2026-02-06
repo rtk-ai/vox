@@ -1,10 +1,10 @@
-use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use qwen3_tts::{AudioBuffer, Language, ModelPaths, Qwen3TTS};
 
 use super::{SpeakOptions, TtsBackend};
+use crate::audio;
 
 const DEFAULT_MODEL: &str = "Qwen/Qwen3-TTS-12Hz-0.6B-Base";
 
@@ -64,7 +64,7 @@ impl TtsBackend for QwenNativeBackend {
         let ref_audio_path = opts.ref_audio.clone();
         let ref_text = opts.ref_text.clone();
 
-        let audio = with_model(opts.model.as_deref(), |model| {
+        let audio_buf = with_model(opts.model.as_deref(), |model| {
             if let Some(ref path) = ref_audio_path {
                 let ref_audio = AudioBuffer::load(path)
                     .with_context(|| format!("failed to load reference audio: {path}"))?;
@@ -75,25 +75,16 @@ impl TtsBackend for QwenNativeBackend {
             }
         })?;
 
-        // Save to temp file and play with afplay
+        // Save to temp file and play with rodio
         let tmp = tempfile::NamedTempFile::new().context("failed to create temp file")?;
         let wav_path = tmp.path().with_extension("wav");
-        audio
+        audio_buf
             .save(&wav_path)
             .context("failed to save generated audio")?;
 
-        let status = Command::new("afplay")
-            .arg(&wav_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("failed to run afplay")?;
+        audio::play_wav_blocking(&wav_path)?;
 
         let _ = std::fs::remove_file(&wav_path);
-
-        if !status.success() {
-            anyhow::bail!("afplay failed with status {status}");
-        }
 
         Ok(())
     }

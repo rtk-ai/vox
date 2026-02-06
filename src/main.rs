@@ -4,7 +4,6 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use vox::backend::{self, SpeakOptions};
-use vox::chat::{self, ChatConfig};
 use vox::config::DEFAULT_BACKEND;
 use vox::{clone, db, init, input};
 
@@ -66,7 +65,8 @@ enum Commands {
     Stats,
     /// Set up AI assistant integration (Claude Code)
     Init,
-    /// Start a voice conversation with Claude
+    /// Start a voice conversation with Claude (macOS only)
+    #[cfg(target_os = "macos")]
     Chat {
         /// Voice clone name
         #[arg(short = 'v', long)]
@@ -114,7 +114,7 @@ enum CloneAction {
 enum ConfigAction {
     /// Show current preferences
     Show,
-    /// Set a preference (backend, voice, lang, rate, gender, style)
+    /// Set a preference (backend, voice, lang, rate, gender, style, model)
     Set {
         /// Preference key
         key: String,
@@ -133,8 +133,21 @@ fn main() -> Result<()> {
         Some(Commands::Config { action }) => handle_config(action),
         Some(Commands::Stats) => handle_stats(),
         Some(Commands::Init) => handle_init(),
+        #[cfg(target_os = "macos")]
         Some(Commands::Chat { voice, lang }) => handle_chat(voice, lang),
         None => handle_speak(cli),
+    }
+}
+
+/// The backend to use for voice cloning (auto-detected by platform).
+fn voice_clone_backend() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "qwen"
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "qwen-native"
     }
 }
 
@@ -168,7 +181,7 @@ fn handle_speak(cli: Cli) -> Result<()> {
         ref_text = vc.ref_text;
         // Auto-switch to a qwen backend for voice clones (unless already on one)
         if effective_backend != "qwen" && effective_backend != "qwen-native" {
-            effective_backend = "qwen".to_string();
+            effective_backend = voice_clone_backend().to_string();
         }
         voice = None; // don't pass clone name as --voice
     }
@@ -299,7 +312,10 @@ fn handle_config(action: ConfigAction) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn handle_chat(voice: Option<String>, lang: Option<String>) -> Result<()> {
+    use vox::chat::{self, ChatConfig};
+
     let api_key = std::env::var("ANTHROPIC_API_KEY")
         .context("ANTHROPIC_API_KEY environment variable is required for chat mode")?;
 

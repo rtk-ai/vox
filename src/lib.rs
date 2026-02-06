@@ -1,8 +1,11 @@
+pub mod audio;
 pub mod backend;
+#[cfg(target_os = "macos")]
 pub mod chat;
 pub mod clone;
 pub mod config;
 pub mod db;
 pub mod init;
 pub mod input;
+#[cfg(target_os = "macos")]
 pub mod stt;

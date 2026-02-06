@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use vox::chat::{self, Message};
 
 #[test]

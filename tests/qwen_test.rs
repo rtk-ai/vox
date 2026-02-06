@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use std::path::Path;
 
 use vox::backend::qwen::QwenBackend;

@@ -1,5 +1,7 @@
+#[cfg(target_os = "macos")]
 pub mod qwen;
 pub mod qwen_native;
+#[cfg(target_os = "macos")]
 pub mod say;
 
 use anyhow::Result;
@@ -25,9 +27,15 @@ pub trait TtsBackend {
 
 pub fn get_backend(name: &str) -> Result<Box<dyn TtsBackend>> {
     match name {
+        #[cfg(target_os = "macos")]
         "say" => Ok(Box::new(say::SayBackend)),
+        #[cfg(target_os = "macos")]
         "qwen" => Ok(Box::new(qwen::QwenBackend)),
         "qwen-native" => Ok(Box::new(qwen_native::QwenNativeBackend)),
+        #[cfg(not(target_os = "macos"))]
+        "say" | "qwen" => {
+            anyhow::bail!("Backend '{name}' is only available on macOS. Use 'qwen-native' instead.")
+        }
         _ => anyhow::bail!("Unknown backend: {name}"),
     }
 }

@@ -58,7 +58,8 @@ fn migrate(conn: &Connection) -> Result<()> {
             lang    TEXT,
             rate    INTEGER,
             gender  TEXT,
-            style   TEXT
+            style   TEXT,
+            model   TEXT
         );
 
         CREATE TABLE IF NOT EXISTS usage_log (
@@ -78,17 +79,6 @@ fn migrate(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
         );",
     )?;
-
-    // Migration: add model column if missing (upgrade from <= 0.0.2)
-    let has_model: bool = conn
-        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='preferences'")?
-        .query_row([], |row| row.get::<_, String>(0))
-        .unwrap_or_default()
-        .contains("model");
-    if !has_model {
-        let _ = conn.execute_batch("ALTER TABLE preferences ADD COLUMN model TEXT;");
-    }
-
     Ok(())
 }
 
@@ -149,8 +139,15 @@ pub fn set_preference(conn: &Connection, key: &str, value: &str) -> Result<()> {
             }
         }
         "backend" => {
-            if !["say", "qwen", "qwen-native"].contains(&value) {
-                anyhow::bail!("Unknown backend: {value}. Must be 'say', 'qwen', or 'qwen-native'");
+            #[cfg(target_os = "macos")]
+            let valid_backends = ["say", "qwen", "qwen-native"];
+            #[cfg(not(target_os = "macos"))]
+            let valid_backends = ["qwen-native"];
+            if !valid_backends.contains(&value) {
+                anyhow::bail!(
+                    "Unknown backend: {value}. Must be one of: {}",
+                    valid_backends.join(", ")
+                );
             }
         }
         _ => {}
