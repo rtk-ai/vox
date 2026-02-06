@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/rtk-ai/vox/compare/v0.1.0...v0.2.0) (2026-02-06)
+
+
+### Features
+
+* cross-platform support for Linux CUDA and Windows ([#8](https://github.com/rtk-ai/vox/issues/8)) ([1ec501f](https://github.com/rtk-ai/vox/commit/1ec501f55a3722416d7cf21899da536bd52010d2))
+
 ## [0.1.0](https://github.com/rtk-ai/vox/compare/v0.0.2...v0.1.0) (2026-02-06)
 
 
