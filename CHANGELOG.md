@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/rtk-ai/vox/compare/v0.3.0...v0.3.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* pass secrets to release workflow for Homebrew update ([c025d9d](https://github.com/rtk-ai/vox/commit/c025d9d7c5bcb4f53f716f5f212326dc6078ee55))
+
 ## [0.3.0](https://github.com/rtk-ai/vox/compare/v0.2.1...v0.3.0) (2026-02-10)
 
 
