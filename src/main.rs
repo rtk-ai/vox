@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use vox::backend::{self, SpeakOptions};
 use vox::config::DEFAULT_BACKEND;
-use vox::{clone, db, init, input, mcp};
+use vox::{clone, db, init, input, mcp, pack};
 
 #[derive(Parser)]
 #[command(name = "vox", version, about = "Voice Command — read text aloud")]
@@ -71,6 +71,11 @@ enum Commands {
     },
     /// Launch MCP server (stdio transport for Claude Code / Claude Desktop)
     Serve,
+    /// Manage fun sound packs (peon-ping compatible)
+    Pack {
+        #[command(subcommand)]
+        action: PackAction,
+    },
     /// Start a voice conversation with Claude (macOS only)
     #[cfg(target_os = "macos")]
     Chat {
@@ -129,6 +134,36 @@ enum InitMode {
 }
 
 #[derive(Subcommand)]
+enum PackAction {
+    /// List available and installed sound packs
+    List,
+    /// Install a sound pack from peon-ping repository
+    Install {
+        /// Pack name (e.g. peon, peon_fr, sc_kerrigan)
+        name: String,
+    },
+    /// Remove an installed sound pack
+    Remove {
+        /// Pack name
+        name: String,
+    },
+    /// Set the active sound pack
+    Set {
+        /// Pack name
+        name: String,
+    },
+    /// Play a random sound from the active pack (or a specific pack)
+    Play {
+        /// Sound category (greeting, acknowledge, complete, error, permission, annoyed)
+        #[arg(default_value = "greeting")]
+        category: String,
+        /// Pack name (uses active pack if omitted)
+        #[arg(short = 'p', long)]
+        pack: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum ConfigAction {
     /// Show current preferences
     Show,
@@ -152,6 +187,7 @@ fn main() -> Result<()> {
         Some(Commands::Stats) => handle_stats(),
         Some(Commands::Init { mode }) => handle_init(mode),
         Some(Commands::Serve) => mcp::run_server(),
+        Some(Commands::Pack { action }) => handle_pack(action),
         #[cfg(target_os = "macos")]
         Some(Commands::Chat { voice, lang }) => handle_chat(voice, lang),
         None => handle_speak(cli),
@@ -318,6 +354,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
             );
             println!("style:   {}", prefs.style.as_deref().unwrap_or("(default)"));
             println!("model:   {}", prefs.model.as_deref().unwrap_or("(default)"));
+            println!("pack:    {}", prefs.pack.as_deref().unwrap_or("(none)"));
         }
         ConfigAction::Set { key, value } => {
             db::set_preference(&conn, &key, &value)?;
@@ -449,6 +486,94 @@ fn handle_init(mode: InitMode) -> Result<()> {
     println!();
     println!("Restart Claude Code / Claude Desktop to activate.");
 
+    Ok(())
+}
+
+fn handle_pack(action: PackAction) -> Result<()> {
+    match action {
+        PackAction::List => {
+            let installed = pack::list_installed()?;
+            let available = pack::list_available();
+
+            let conn = db::open()?;
+            let prefs = db::get_preferences(&conn)?;
+            let active = prefs.pack.as_deref().unwrap_or("");
+
+            if installed.is_empty() {
+                println!("No packs installed.\n");
+            } else {
+                println!("Installed:");
+                for p in &installed {
+                    let marker = if p.name == active { " (active)" } else { "" };
+                    let cats: Vec<&str> = p.categories.keys().map(|k| k.as_str()).collect();
+                    println!(
+                        "  {} — {}{} [{}]",
+                        p.name,
+                        p.display_name,
+                        marker,
+                        cats.join(", ")
+                    );
+                }
+                println!();
+            }
+
+            let installed_names: Vec<&str> = installed.iter().map(|p| p.name.as_str()).collect();
+            let not_installed: Vec<&&str> = available
+                .iter()
+                .filter(|n| !installed_names.contains(*n))
+                .collect();
+
+            if !not_installed.is_empty() {
+                println!("Available for install:");
+                for name in &not_installed {
+                    println!("  {name}");
+                }
+            }
+        }
+        PackAction::Install { name } => {
+            println!("Installing pack '{name}'...");
+            pack::install(&name)?;
+            println!("Pack '{name}' installed.");
+        }
+        PackAction::Remove { name } => {
+            if pack::remove(&name)? {
+                // Clear active pack if it was the removed one
+                let conn = db::open()?;
+                let prefs = db::get_preferences(&conn)?;
+                if prefs.pack.as_deref() == Some(&name) {
+                    db::set_preference(&conn, "pack", "")?;
+                }
+                println!("Pack '{name}' removed.");
+            } else {
+                println!("Pack '{name}' not found.");
+            }
+        }
+        PackAction::Set { name } => {
+            // Verify pack is installed
+            let _ = pack::load_manifest(&name)?;
+            let conn = db::open()?;
+            db::set_preference(&conn, "pack", &name)?;
+            println!("Active pack set to '{name}'.");
+        }
+        PackAction::Play {
+            category,
+            pack: pack_name,
+        } => {
+            let name = match pack_name {
+                Some(n) => n,
+                None => {
+                    let conn = db::open()?;
+                    let prefs = db::get_preferences(&conn)?;
+                    prefs.pack.unwrap_or_default()
+                }
+            };
+            if name.is_empty() {
+                anyhow::bail!("No active pack. Set one with: vox pack set <name>");
+            }
+            let line = pack::play(&name, Some(&category))?;
+            println!("{line}");
+        }
+    }
     Ok(())
 }
 

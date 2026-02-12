@@ -88,3 +88,7 @@ pub fn db_path() -> PathBuf {
 pub fn clones_dir() -> PathBuf {
     config_dir().join("clones")
 }
+
+pub fn packs_dir() -> PathBuf {
+    config_dir().join("packs")
+}

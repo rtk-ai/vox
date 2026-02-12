@@ -7,10 +7,16 @@ use anyhow::{Context, Result};
 
 /// Play a WAV file and block until playback finishes.
 pub fn play_wav_blocking(path: &Path) -> Result<()> {
+    play_audio_blocking(path)
+}
+
+/// Play an audio file (WAV, MP3, OGG, FLAC) and block until playback finishes.
+pub fn play_audio_blocking(path: &Path) -> Result<()> {
     let (_stream, stream_handle) =
         rodio::OutputStream::try_default().context("Failed to open audio output device")?;
-    let file = File::open(path).context("Failed to open WAV file")?;
-    let source = rodio::Decoder::new(BufReader::new(file)).context("Failed to decode WAV file")?;
+    let file = File::open(path).context("Failed to open audio file")?;
+    let source =
+        rodio::Decoder::new(BufReader::new(file)).context("Failed to decode audio file")?;
     let sink = rodio::Sink::try_new(&stream_handle).context("Failed to create audio sink")?;
     sink.append(source);
     sink.sleep_until_end();

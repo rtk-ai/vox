@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::backend::{self, SpeakOptions};
 use crate::clone;
 use crate::db;
+use crate::pack;
 
 const SERVER_NAME: &str = "vox";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -282,6 +283,70 @@ fn tool_definitions() -> Value {
             "name": "vox_stats",
             "description": "Show vox usage statistics (total requests, characters spoken, recent history).",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "vox_pack_list",
+            "description": "List installed and available fun sound packs (peon-ping compatible: Warcraft, StarCraft, Red Alert voices).",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "vox_pack_install",
+            "description": "Install a fun sound pack. Available: peon, peon_fr, peon_pl, peasant, peasant_fr, sc_kerrigan, sc_battlecruiser, ra2_soviet_engineer.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Pack name to install"
+                    }
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "vox_pack_set",
+            "description": "Set the active sound pack.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Pack name to activate"
+                    }
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "vox_pack_play",
+            "description": "Play a random sound from a pack category. Categories: greeting, acknowledge, complete, error, permission, resource_limit, annoyed.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Sound category (default: greeting)"
+                    },
+                    "pack": {
+                        "type": "string",
+                        "description": "Pack name (uses active pack if omitted)"
+                    }
+                }
+            }
+        },
+        {
+            "name": "vox_pack_remove",
+            "description": "Remove an installed sound pack.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Pack name to remove"
+                    }
+                },
+                "required": ["name"]
+            }
         }
     ])
 }
@@ -334,6 +399,11 @@ fn call_tool(name: &str, args: &Value) -> ToolResult {
         "vox_config_show" => tool_config_show(),
         "vox_config_set" => tool_config_set(args),
         "vox_stats" => tool_stats(),
+        "vox_pack_list" => tool_pack_list(),
+        "vox_pack_install" => tool_pack_install(args),
+        "vox_pack_set" => tool_pack_set(args),
+        "vox_pack_play" => tool_pack_play(args),
+        "vox_pack_remove" => tool_pack_remove(args),
         _ => tool_err(format!("unknown tool: {name}")),
     }
 }
@@ -570,6 +640,7 @@ fn tool_config_show() -> ToolResult {
                 ),
                 format!("style:   {}", prefs.style.as_deref().unwrap_or("(default)")),
                 format!("model:   {}", prefs.model.as_deref().unwrap_or("(default)")),
+                format!("pack:    {}", prefs.pack.as_deref().unwrap_or("(none)")),
             ];
             tool_ok(lines.join("\n"))
         }
@@ -630,4 +701,138 @@ fn tool_stats() -> ToolResult {
     }
 
     tool_ok(output)
+}
+
+// ---------------------------------------------------------------------------
+// Sound pack tools
+// ---------------------------------------------------------------------------
+
+fn tool_pack_list() -> ToolResult {
+    let installed = match pack::list_installed() {
+        Ok(p) => p,
+        Err(e) => return tool_err(format!("error: {e}")),
+    };
+
+    let conn = match db::open() {
+        Ok(c) => c,
+        Err(e) => return tool_err(format!("database error: {e}")),
+    };
+    let active = db::get_preferences(&conn)
+        .ok()
+        .and_then(|p| p.pack)
+        .unwrap_or_default();
+
+    let mut output = String::new();
+
+    if installed.is_empty() {
+        output.push_str("No packs installed.\n");
+    } else {
+        output.push_str("Installed:\n");
+        for p in &installed {
+            let marker = if p.name == active { " (active)" } else { "" };
+            output.push_str(&format!("  {} — {}{}\n", p.name, p.display_name, marker));
+        }
+    }
+
+    let installed_names: Vec<&str> = installed.iter().map(|p| p.name.as_str()).collect();
+    let not_installed: Vec<&&str> = pack::list_available()
+        .iter()
+        .filter(|n| !installed_names.contains(*n))
+        .collect();
+
+    if !not_installed.is_empty() {
+        output.push_str("\nAvailable for install:\n");
+        for name in &not_installed {
+            output.push_str(&format!("  {name}\n"));
+        }
+    }
+
+    tool_ok(output)
+}
+
+fn tool_pack_install(args: &Value) -> ToolResult {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return tool_err("missing required parameter: name".into()),
+    };
+
+    match pack::install(name) {
+        Ok(()) => tool_ok(format!("Pack '{name}' installed.")),
+        Err(e) => tool_err(format!("install error: {e}")),
+    }
+}
+
+fn tool_pack_set(args: &Value) -> ToolResult {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return tool_err("missing required parameter: name".into()),
+    };
+
+    if let Err(e) = pack::load_manifest(name) {
+        return tool_err(format!("error: {e}"));
+    }
+
+    let conn = match db::open() {
+        Ok(c) => c,
+        Err(e) => return tool_err(format!("database error: {e}")),
+    };
+
+    match db::set_preference(&conn, "pack", name) {
+        Ok(()) => tool_ok(format!("Active pack set to '{name}'.")),
+        Err(e) => tool_err(format!("error: {e}")),
+    }
+}
+
+fn tool_pack_play(args: &Value) -> ToolResult {
+    let category = args
+        .get("category")
+        .and_then(|v| v.as_str())
+        .unwrap_or("greeting");
+
+    let pack_name = match args.get("pack").and_then(|v| v.as_str()) {
+        Some(n) => n.to_string(),
+        None => {
+            let conn = match db::open() {
+                Ok(c) => c,
+                Err(e) => return tool_err(format!("database error: {e}")),
+            };
+            db::get_preferences(&conn)
+                .ok()
+                .and_then(|p| p.pack)
+                .unwrap_or_default()
+        }
+    };
+
+    if pack_name.is_empty() {
+        return tool_err(
+            "No active pack. Set one with vox_pack_set or pass the 'pack' parameter.".into(),
+        );
+    }
+
+    match pack::play(&pack_name, Some(category)) {
+        Ok(line) => tool_ok(format!("[{pack_name}/{category}] {line}")),
+        Err(e) => tool_err(format!("play error: {e}")),
+    }
+}
+
+fn tool_pack_remove(args: &Value) -> ToolResult {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return tool_err("missing required parameter: name".into()),
+    };
+
+    match pack::remove(name) {
+        Ok(true) => {
+            // Clear active pack if it was the removed one
+            if let Ok(conn) = db::open()
+                && let Ok(prefs) = db::get_preferences(&conn)
+                && prefs.pack.as_deref() == Some(name)
+            {
+                let _ = db::set_preference(&conn, "pack", "");
+            }
+            tool_ok(format!("Pack '{name}' removed."))
+        }
+        Ok(false) => tool_err(format!("Pack '{name}' not found.")),
+        Err(e) => tool_err(format!("error: {e}")),
+    }
 }

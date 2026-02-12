@@ -12,6 +12,7 @@ pub struct Preferences {
     pub gender: Option<String>,
     pub style: Option<String>,
     pub model: Option<String>,
+    pub pack: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +80,13 @@ fn migrate(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
         );",
     )?;
+
+    // Add pack column if it doesn't exist (migration for existing DBs)
+    let has_pack = conn.prepare("SELECT pack FROM preferences LIMIT 0").is_ok();
+    if !has_pack {
+        conn.execute_batch("ALTER TABLE preferences ADD COLUMN pack TEXT;")?;
+    }
+
     Ok(())
 }
 
@@ -86,7 +94,7 @@ fn migrate(conn: &Connection) -> Result<()> {
 
 pub fn get_preferences(conn: &Connection) -> Result<Preferences> {
     let mut stmt = conn.prepare(
-        "SELECT backend, voice, lang, rate, gender, style, model FROM preferences WHERE id = 1",
+        "SELECT backend, voice, lang, rate, gender, style, model, pack FROM preferences WHERE id = 1",
     )?;
     let result = stmt.query_row([], |row| {
         Ok(Preferences {
@@ -97,6 +105,7 @@ pub fn get_preferences(conn: &Connection) -> Result<Preferences> {
             gender: row.get(4)?,
             style: row.get(5)?,
             model: row.get(6)?,
+            pack: row.get(7)?,
         })
     });
     match result {
@@ -108,7 +117,7 @@ pub fn get_preferences(conn: &Connection) -> Result<Preferences> {
 
 pub fn set_preference(conn: &Connection, key: &str, value: &str) -> Result<()> {
     let valid_keys = [
-        "backend", "voice", "lang", "rate", "gender", "style", "model",
+        "backend", "voice", "lang", "rate", "gender", "style", "model", "pack",
     ];
     if !valid_keys.contains(&key) {
         anyhow::bail!(
@@ -155,8 +164,8 @@ pub fn set_preference(conn: &Connection, key: &str, value: &str) -> Result<()> {
 
     // Upsert: insert or update
     conn.execute(
-        "INSERT INTO preferences (id, backend, voice, lang, rate, gender, style, model)
-         VALUES (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+        "INSERT INTO preferences (id, backend, voice, lang, rate, gender, style, model, pack)
+         VALUES (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
          ON CONFLICT(id) DO NOTHING",
         [],
     )?;
