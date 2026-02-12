@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/rtk-ai/vox/compare/v0.3.1...v0.4.0) (2026-02-12)
+
+
+### Features
+
+* add sound pack system (peon-ping compatible) ([#18](https://github.com/rtk-ai/vox/issues/18)) ([b048487](https://github.com/rtk-ai/vox/commit/b048487a7f897b4bee0b5f4fb1ffc484d36873d1))
+
 ## [0.3.1](https://github.com/rtk-ai/vox/compare/v0.3.0...v0.3.1) (2026-02-10)
 
 
