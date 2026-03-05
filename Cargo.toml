@@ -1,6 +1,6 @@
 [package]
 name = "vox"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 description = "Cross-platform TTS CLI — local voice synthesis with Qwen and system say"
 license = "LicenseRef-Proprietary"

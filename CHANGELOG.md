@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/rtk-ai/vox/compare/v0.5.0...v0.6.0) (2026-03-05)
+
+
+### Features
+
+* enrich vox stats + fix broken STT tests ([22923ca](https://github.com/rtk-ai/vox/commit/22923ca7144b9a08dabec223c010dcdad34297a0))
+
+
+### Bug Fixes
+
+* default to say backend on macOS, kokoro on other platforms ([#23](https://github.com/rtk-ai/vox/issues/23)) ([c624028](https://github.com/rtk-ai/vox/commit/c624028eabc64030710477be04dd95c15678bbba))
+* update README license from MIT to source-available ([#22](https://github.com/rtk-ai/vox/issues/22)) ([080de05](https://github.com/rtk-ai/vox/commit/080de055b525bf50942665fb99be779d13ae7609))
+
 ## [0.5.0](https://github.com/rtk-ai/vox/compare/v0.4.0...v0.5.0) (2026-03-05)
 
 
