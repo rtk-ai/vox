@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/rtk-ai/vox/compare/v0.4.0...v0.5.0) (2026-03-05)
+
+
+### Features
+
+* add 6 AI tools to vox init (Gemini, Amazon Q, Cline, Roo Code, Kilo Code, Amp) ([65c73a2](https://github.com/rtk-ai/vox/commit/65c73a23a6f1bc3795cc04f5a7d0badff99d6d87))
+* add Kokoro TTS backend, universal MCP init, source-available license ([413ff83](https://github.com/rtk-ai/vox/commit/413ff83e2136f28c9b172f2239b0abc9d69a913b))
+
+
+### Bug Fixes
+
+* remove Stop hook (terminé) from project settings ([085725a](https://github.com/rtk-ai/vox/commit/085725a77c40cfbfdcf98f3fc203283ce1220464))
+
 ## [0.4.0](https://github.com/rtk-ai/vox/compare/v0.3.1...v0.4.0) (2026-02-12)
 
 
