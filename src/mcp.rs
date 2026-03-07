@@ -879,9 +879,9 @@ fn tool_hear(args: &Value) -> ToolResult {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = args;
-        return tool_err(
+        tool_err(
             "vox_hear requires macOS (mlx-audio STT). Linux/Windows support coming soon.".into(),
-        );
+        )
     }
 
     #[cfg(target_os = "macos")]
