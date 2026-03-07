@@ -141,7 +141,9 @@ fn lang_validation_rejects_unsupported() {
 #[test]
 fn lang_validation_accepts_all_supported() {
     let conn = db::open_in_memory().unwrap();
-    for lang in &["en", "fr", "es", "de", "it", "pt", "zh", "ja", "ko", "ru", "ar", "nl"] {
+    for lang in &[
+        "en", "fr", "es", "de", "it", "pt", "zh", "ja", "ko", "ru", "ar", "nl",
+    ] {
         assert!(
             db::set_preference(&conn, "lang", lang).is_ok(),
             "Should accept lang={lang}"
@@ -183,7 +185,13 @@ fn unicode_text_stored_and_retrieved_correctly() {
 #[test]
 fn clone_name_with_unicode_works() {
     let conn = db::open_in_memory().unwrap();
-    db::add_clone(&conn, "voix_française", "/tmp/test.wav", Some("Bonjour à tous")).unwrap();
+    db::add_clone(
+        &conn,
+        "voix_française",
+        "/tmp/test.wav",
+        Some("Bonjour à tous"),
+    )
+    .unwrap();
     let clone = db::get_clone(&conn, "voix_française").unwrap();
     assert!(clone.is_some());
     assert_eq!(clone.unwrap().ref_text.as_deref(), Some("Bonjour à tous"));

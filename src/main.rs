@@ -576,10 +576,7 @@ fn handle_init(mode: InitMode) -> Result<()> {
 
         // -- Gemini Code Assist --
         let path = home_path.join(".gemini/settings.json");
-        configure(
-            "Gemini",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
-        );
+        configure("Gemini", init::inject_mcp_server(&path, "vox", &mcp_entry));
 
         // -- Amazon Q --
         let path = home_path.join(".aws/amazonq/mcp.json");
@@ -597,10 +594,7 @@ fn handle_init(mode: InitMode) -> Result<()> {
             .unwrap_or_else(|| home_path.join("AppData/Roaming/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"));
         #[cfg(target_os = "linux")]
         let path = home_path.join(".config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
-        configure(
-            "Cline",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
-        );
+        configure("Cline", init::inject_mcp_server(&path, "vox", &mcp_entry));
 
         // -- Roo Code (VS Code extension) --
         #[cfg(target_os = "macos")]
@@ -624,7 +618,9 @@ fn handle_init(mode: InitMode) -> Result<()> {
             .map(|d| d.join("Code/User/globalStorage/kilocode.kilo-code/settings/cline_mcp_settings.json"))
             .unwrap_or_else(|| home_path.join("AppData/Roaming/Code/User/globalStorage/kilocode.kilo-code/settings/cline_mcp_settings.json"));
         #[cfg(target_os = "linux")]
-        let path = home_path.join(".config/Code/User/globalStorage/kilocode.kilo-code/settings/cline_mcp_settings.json");
+        let path = home_path.join(
+            ".config/Code/User/globalStorage/kilocode.kilo-code/settings/cline_mcp_settings.json",
+        );
         configure(
             "Kilo Code",
             init::inject_mcp_server(&path, "vox", &mcp_entry),
@@ -632,10 +628,7 @@ fn handle_init(mode: InitMode) -> Result<()> {
 
         // -- Amp --
         let path = home_path.join(".ampcode/settings.json");
-        configure(
-            "Amp",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
-        );
+        configure("Amp", init::inject_mcp_server(&path, "vox", &mcp_entry));
     }
 
     // --- Skill mode: create /speak slash command ---
@@ -815,7 +808,10 @@ fn handle_stats() -> Result<()> {
         let pct = (b.calls as f64 / count as f64) * 100.0;
         let dur = format_duration(b.total_duration_ms);
         let avg = if b.calls > 0 {
-            format!("{:.1}s avg", b.total_duration_ms as f64 / 1000.0 / b.calls as f64)
+            format!(
+                "{:.1}s avg",
+                b.total_duration_ms as f64 / 1000.0 / b.calls as f64
+            )
         } else {
             "-".into()
         };

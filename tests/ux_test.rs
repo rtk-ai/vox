@@ -86,7 +86,10 @@ fn unknown_preference_key_shows_valid_keys() {
         .args(["config", "set", "foo", "bar"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Unknown preference").and(predicate::str::contains("Valid keys")));
+        .stderr(
+            predicate::str::contains("Unknown preference")
+                .and(predicate::str::contains("Valid keys")),
+        );
 }
 
 // ---------------------------------------------------------------------------
