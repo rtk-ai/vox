@@ -212,3 +212,199 @@ fn stats_on_empty_db_is_fast() {
         elapsed.as_millis()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Clone resolution speed with many clones
+// ---------------------------------------------------------------------------
+
+#[test]
+fn clone_resolution_fast_with_200_clones() {
+    let conn = db::open_in_memory().unwrap();
+    for i in 0..200 {
+        db::add_clone(
+            &conn,
+            &format!("voice_{i:04}"),
+            &format!("/tmp/audio_{i}.wav"),
+            Some(&format!("Reference text for clone {i}")),
+        )
+        .unwrap();
+    }
+
+    // Resolve the last clone (worst case for sequential scan)
+    let start = std::time::Instant::now();
+    for _ in 0..100 {
+        let result = db::get_clone(&conn, "voice_0199").unwrap();
+        assert!(result.is_some());
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_millis() < 200,
+        "100 clone resolutions among 200 clones took {}ms, expected <200ms",
+        elapsed.as_millis()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Config read/write cycle under load
+// ---------------------------------------------------------------------------
+
+#[test]
+fn config_read_write_rapid_cycling_all_keys() {
+    let conn = db::open_in_memory().unwrap();
+    let start = std::time::Instant::now();
+    for i in 0..50 {
+        db::set_preference(&conn, "voice", &format!("voice_{i}")).unwrap();
+        db::set_preference(&conn, "lang", "fr").unwrap();
+        db::set_preference(&conn, "gender", "feminine").unwrap();
+        db::set_preference(&conn, "style", "calm").unwrap();
+        let prefs = db::get_preferences(&conn).unwrap();
+        assert_eq!(prefs.voice.as_deref(), Some(format!("voice_{i}").as_str()));
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_millis() < 1000,
+        "50 full config cycles took {}ms, expected <1000ms",
+        elapsed.as_millis()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Sentence splitting performance on large text
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+#[test]
+fn sentence_splitting_performance_large_text() {
+    use vox::chat::sentence::SentenceAccumulator;
+
+    // Build a large text (~100KB) with many sentences
+    let sentence = format!("{}. ", "A".repeat(150));
+    let large_text = sentence.repeat(500); // ~75KB
+
+    let start = std::time::Instant::now();
+    let mut acc = SentenceAccumulator::new();
+    let sentences = acc.push(&large_text);
+    let _remaining = acc.flush();
+    let elapsed = start.elapsed();
+
+    assert!(
+        sentences.len() >= 400,
+        "Expected >=400 sentences, got {}",
+        sentences.len()
+    );
+    assert!(
+        elapsed.as_millis() < 100,
+        "Sentence splitting of ~75KB took {}ms, expected <100ms",
+        elapsed.as_millis()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// STT command building performance
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+#[test]
+fn stt_command_building_performance() {
+    let start = std::time::Instant::now();
+    for i in 0..1000 {
+        let path = format!("/tmp/audio_{i}.wav");
+        let _cmd = vox::stt::build_transcribe_command(&path, Some("fr"));
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_millis() < 200,
+        "1000 STT command builds took {}ms, expected <200ms",
+        elapsed.as_millis()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Multiple sequential DB operations (mixed workload)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn mixed_db_operations_performance() {
+    let conn = db::open_in_memory().unwrap();
+
+    let start = std::time::Instant::now();
+
+    // Interleave clones, preferences, usage logs, and queries
+    for i in 0..100 {
+        db::add_clone(
+            &conn,
+            &format!("perf_clone_{i}"),
+            &format!("/tmp/audio_{i}.wav"),
+            Some("ref text"),
+        )
+        .unwrap();
+        db::log_usage(&conn, "kokoro", Some("default"), Some("en"), 100, Some(500)).unwrap();
+        db::set_preference(&conn, "voice", &format!("v{i}")).unwrap();
+        let _ = db::get_preferences(&conn).unwrap();
+        let _ = db::get_clone(&conn, &format!("perf_clone_{i}")).unwrap();
+    }
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_millis() < 2000,
+        "500 mixed DB ops took {}ms, expected <2000ms",
+        elapsed.as_millis()
+    );
+
+    // Verify data integrity after mixed workload
+    let clones = db::list_clones(&conn).unwrap();
+    assert_eq!(clones.len(), 100);
+    let (count, _) = db::get_usage_summary(&conn).unwrap();
+    assert_eq!(count, 100);
+}
+
+// ---------------------------------------------------------------------------
+// Repeated DB open_in_memory (schema migration) performance
+// ---------------------------------------------------------------------------
+
+#[test]
+fn repeated_db_open_performance() {
+    let start = std::time::Instant::now();
+    for _ in 0..100 {
+        let _conn = db::open_in_memory().unwrap();
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_millis() < 500,
+        "100 DB opens took {}ms, expected <500ms",
+        elapsed.as_millis()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Remove clone performance with many entries
+// ---------------------------------------------------------------------------
+
+#[test]
+fn remove_clone_performance_with_many_entries() {
+    let conn = db::open_in_memory().unwrap();
+    for i in 0..200 {
+        db::add_clone(
+            &conn,
+            &format!("del_clone_{i}"),
+            &format!("/tmp/audio_{i}.wav"),
+            None,
+        )
+        .unwrap();
+    }
+
+    let start = std::time::Instant::now();
+    for i in 0..200 {
+        let removed = db::remove_clone(&conn, &format!("del_clone_{i}")).unwrap();
+        assert!(removed);
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_millis() < 500,
+        "200 clone removals took {}ms, expected <500ms",
+        elapsed.as_millis()
+    );
+
+    let clones = db::list_clones(&conn).unwrap();
+    assert!(clones.is_empty());
+}

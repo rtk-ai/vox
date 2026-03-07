@@ -214,3 +214,179 @@ fn stt_escapes_single_quotes_in_path() {
     assert!(script.contains("\\'"));
     assert!(!script.contains("it's"));
 }
+
+// ---------------------------------------------------------------------------
+// Path traversal in clone audio file paths
+// ---------------------------------------------------------------------------
+
+#[test]
+fn audio_validation_rejects_path_traversal_etc_passwd() {
+    let result = clone::validate_audio("../../etc/passwd");
+    assert!(result.is_err());
+}
+
+#[test]
+fn audio_validation_rejects_path_traversal_with_extension() {
+    // Even with a valid extension, path traversal to nonexistent file must fail
+    let result = clone::validate_audio("../../../etc/shadow.wav");
+    assert!(result.is_err());
+}
+
+#[test]
+fn audio_validation_rejects_dot_dot_encoded_path() {
+    let result = clone::validate_audio("/tmp/../../../etc/passwd.wav");
+    // File does not exist so it must fail
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Clone name with null bytes and control characters
+// ---------------------------------------------------------------------------
+
+#[test]
+fn clone_name_with_null_byte_stored_safely() {
+    let conn = db::open_in_memory().unwrap();
+    let name = "clone\0evil";
+    db::add_clone(&conn, name, "/tmp/test.wav", None).unwrap();
+    let clones = db::list_clones(&conn).unwrap();
+    assert_eq!(clones.len(), 1);
+    // Name is stored literally, DB is intact
+    db::list_clones(&conn).unwrap();
+}
+
+#[test]
+fn clone_name_with_control_characters_stored_safely() {
+    let conn = db::open_in_memory().unwrap();
+    let name = "clone\x01\x02\x03\x07\x1b[31mred";
+    db::add_clone(&conn, name, "/tmp/test.wav", None).unwrap();
+    let clone = db::get_clone(&conn, name).unwrap();
+    assert!(clone.is_some());
+    assert_eq!(clone.unwrap().name, name);
+}
+
+#[test]
+fn clone_name_with_newlines_stored_safely() {
+    let conn = db::open_in_memory().unwrap();
+    let name = "line1\nline2\rline3";
+    db::add_clone(&conn, name, "/tmp/test.wav", None).unwrap();
+    let clone = db::get_clone(&conn, name).unwrap();
+    assert!(clone.is_some());
+}
+
+// ---------------------------------------------------------------------------
+// Config injection — shell metacharacters in preference values
+// ---------------------------------------------------------------------------
+
+#[test]
+fn preference_value_with_shell_metacharacters_stored_literally() {
+    let conn = db::open_in_memory().unwrap();
+    db::set_preference(&conn, "voice", "$(rm -rf /)").unwrap();
+    let prefs = db::get_preferences(&conn).unwrap();
+    assert_eq!(prefs.voice.as_deref(), Some("$(rm -rf /)"));
+}
+
+#[test]
+fn preference_value_with_backticks_stored_literally() {
+    let conn = db::open_in_memory().unwrap();
+    db::set_preference(&conn, "voice", "`id`").unwrap();
+    let prefs = db::get_preferences(&conn).unwrap();
+    assert_eq!(prefs.voice.as_deref(), Some("`id`"));
+}
+
+#[test]
+fn preference_value_with_pipe_and_redirect_stored_literally() {
+    let conn = db::open_in_memory().unwrap();
+    db::set_preference(&conn, "voice", "test | cat /etc/passwd > /tmp/pwned").unwrap();
+    let prefs = db::get_preferences(&conn).unwrap();
+    assert_eq!(
+        prefs.voice.as_deref(),
+        Some("test | cat /etc/passwd > /tmp/pwned")
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MCP tool input validation — malicious JSON-RPC params
+// ---------------------------------------------------------------------------
+
+#[test]
+fn config_set_rejects_key_with_semicolon() {
+    let conn = db::open_in_memory().unwrap();
+    let result = db::set_preference(&conn, "voice; DROP TABLE", "value");
+    assert!(result.is_err());
+}
+
+#[test]
+fn config_set_rejects_empty_key() {
+    let conn = db::open_in_memory().unwrap();
+    let result = db::set_preference(&conn, "", "value");
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Very long text input (DoS prevention / robustness)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn very_long_clone_name_does_not_crash() {
+    let conn = db::open_in_memory().unwrap();
+    let long_name = "A".repeat(10_000);
+    // Should succeed — DB handles long strings
+    db::add_clone(&conn, &long_name, "/tmp/test.wav", None).unwrap();
+    let clone = db::get_clone(&conn, &long_name).unwrap();
+    assert!(clone.is_some());
+}
+
+#[test]
+fn very_long_preference_value_does_not_crash() {
+    let conn = db::open_in_memory().unwrap();
+    let long_value = "V".repeat(100_000);
+    db::set_preference(&conn, "voice", &long_value).unwrap();
+    let prefs = db::get_preferences(&conn).unwrap();
+    assert_eq!(prefs.voice.as_deref(), Some(long_value.as_str()));
+}
+
+#[test]
+fn very_long_usage_log_text_does_not_crash() {
+    let conn = db::open_in_memory().unwrap();
+    let large_len = 1_000_000;
+    db::log_usage(&conn, "say", None, Some("en"), large_len, Some(5000)).unwrap();
+    let (count, total_chars) = db::get_usage_summary(&conn).unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(total_chars, large_len as u64);
+}
+
+// ---------------------------------------------------------------------------
+// Backend selection with malicious strings
+// ---------------------------------------------------------------------------
+
+#[test]
+fn backend_validation_rejects_shell_injection() {
+    let conn = db::open_in_memory().unwrap();
+    let result = db::set_preference(&conn, "backend", "say; rm -rf /");
+    assert!(result.is_err());
+}
+
+#[test]
+fn backend_validation_rejects_path_traversal() {
+    let conn = db::open_in_memory().unwrap();
+    let result = db::set_preference(&conn, "backend", "../../../bin/sh");
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Rate / voice / lang enum boundary testing
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rate_rejects_non_numeric_value() {
+    let conn = db::open_in_memory().unwrap();
+    let result = db::set_preference(&conn, "rate", "not_a_number");
+    assert!(result.is_err());
+}
+
+#[test]
+fn rate_rejects_negative_value() {
+    let conn = db::open_in_memory().unwrap();
+    let result = db::set_preference(&conn, "rate", "-100");
+    assert!(result.is_err());
+}
