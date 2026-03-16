@@ -52,22 +52,30 @@ One command configures **14 AI tools** (Claude Code, Cursor, VS Code, Zed, Codex
 
 ```bash
 vox init                # MCP server (default) — all AI tools
-vox init -m cli         # CLAUDE.md + Stop hook
+vox init -m cli         # CLAUDE.md + Stop hook (recommended)
 vox init -m skill       # /speak slash command
 vox init -m all         # all of the above
 ```
 
-The MCP server exposes 14 tools: `vox_speak`, `vox_hear`, `vox_list_voices`, `vox_clone_*`, `vox_config_*`, `vox_stats`, `vox_pack_*`.
-
-```
-  AI Assistant (Claude Code, Cursor, ...)
-      |
-   MCP stdio
-      |
-  vox serve ──> vox_speak, vox_hear, vox_clone_add, ...
-```
-
 Running `vox init` again is safe — it skips files that are already configured.
+
+### CLI mode vs MCP mode
+
+**CLI mode is recommended** for AI coding agents. Benchmarks show CLI tools are [10-32x cheaper and 100% reliable vs 72% for MCP](https://mariozechner.at/posts/2025-08-15-mcp-vs-cli/) due to MCP's TCP timeout overhead and JSON schema cost per call.
+
+With CLI mode, the agent calls vox directly via Bash — no server, no protocol overhead:
+
+```bash
+# Agent just runs this after completing a task
+vox "Fix applied and tests passing."
+```
+
+MCP mode remains useful for tools that don't have shell access (Cursor, VS Code extensions) or when you need structured tool discovery.
+
+| Mode | Reliability | Token cost | Best for |
+|------|------------|------------|----------|
+| **CLI** (`vox init -m cli`) | 100% | Low (Bash call) | Claude Code, Codex, terminal agents |
+| **MCP** (`vox init`) | ~72% | Higher (JSON schema) | Cursor, VS Code, GUI-based tools |
 
 ## Voice cloning
 
