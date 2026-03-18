@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/rtk-ai/vox/compare/v0.7.0...v0.8.0) (2026-03-18)
+
+
+### Features
+
+* add VoXtream2 backend and interactive TUI setup ([#31](https://github.com/rtk-ai/vox/issues/31)) ([5c7799c](https://github.com/rtk-ai/vox/commit/5c7799cd3cc5673b467e1caf5c09684ce3287c97))
+
 ## [0.7.0](https://github.com/rtk-ai/vox/compare/v0.6.0...v0.7.0) (2026-03-16)
 
 
