@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/rtk-ai/vox/compare/v0.8.0...v0.9.0) (2026-03-18)
+
+
+### Features
+
+* add lazy daemon mode and streaming voxtream-server integration ([#36](https://github.com/rtk-ai/vox/issues/36)) ([47a7609](https://github.com/rtk-ai/vox/commit/47a7609ab22e9f6c716de312e0f27181920dc3e8)), closes [#30](https://github.com/rtk-ai/vox/issues/30)
+
+
+### Bug Fixes
+
+* auto-fix for issue [#33](https://github.com/rtk-ai/vox/issues/33) [wshm] ([#34](https://github.com/rtk-ai/vox/issues/34)) ([bcf0e25](https://github.com/rtk-ai/vox/commit/bcf0e25425dc9f7c58200f300501aad914adbf79))
+
 ## [0.8.0](https://github.com/rtk-ai/vox/compare/v0.7.0...v0.8.0) (2026-03-18)
 
 
