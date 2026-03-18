@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/rtk-ai/vox/compare/v0.9.0...v0.9.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* revert kokoro to Python backend, restore say default on macOS ([#37](https://github.com/rtk-ai/vox/issues/37)) ([0c2f7a1](https://github.com/rtk-ai/vox/commit/0c2f7a1a4233f9cefedc8e51805c832426fca0fc))
+
 ## [0.9.0](https://github.com/rtk-ai/vox/compare/v0.8.0...v0.9.0) (2026-03-18)
 
 
