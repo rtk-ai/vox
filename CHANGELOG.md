@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/rtk-ai/vox/compare/v0.9.1...v0.10.0) (2026-04-06)
+
+
+### Features
+
+* add piper TTS backend and set as default for all platforms ([#49](https://github.com/rtk-ai/vox/issues/49)) ([48d2193](https://github.com/rtk-ai/vox/commit/48d2193ff68836632f57bfae0482983a97bfae46))
+
+
+### Bug Fixes
+
+* resolve clippy warnings breaking CI (manual_find, trim_split_whitespace, iter_cloned_collect) ([#47](https://github.com/rtk-ai/vox/issues/47)) ([8dfd6ce](https://github.com/rtk-ai/vox/commit/8dfd6ce19691b808b92e1eac5c7d38178ce1e861))
+
 ## [0.9.1](https://github.com/rtk-ai/vox/compare/v0.9.0...v0.9.1) (2026-03-18)
 
 
