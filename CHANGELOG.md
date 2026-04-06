@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/rtk-ai/vox/compare/v0.11.0...v0.12.0) (2026-04-06)
+
+
+### Features
+
+* add `vox bench` auto-detection of best backend ([#53](https://github.com/rtk-ai/vox/issues/53)) ([0a7f073](https://github.com/rtk-ai/vox/commit/0a7f073c67f1444dd6a8082efb9beba5ed797ad0))
+
 ## [0.11.0](https://github.com/rtk-ai/vox/compare/v0.10.0...v0.11.0) (2026-04-06)
 
 
