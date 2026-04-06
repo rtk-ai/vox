@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/rtk-ai/vox/compare/v0.10.0...v0.11.0) (2026-04-06)
+
+
+### Features
+
+* full Rust piper backend (piper-rs) + TUI quality ratings ([#52](https://github.com/rtk-ai/vox/issues/52)) ([7f0292f](https://github.com/rtk-ai/vox/commit/7f0292f0c716a5fb195a5f035d3933a437755400))
+
+
+### Bug Fixes
+
+* auto-enable CUDA for piper backend when NVIDIA GPU detected ([#50](https://github.com/rtk-ai/vox/issues/50)) ([4288eff](https://github.com/rtk-ai/vox/commit/4288efff19302f5de0df21b75e1cabbc5d384deb))
+
 ## [0.10.0](https://github.com/rtk-ai/vox/compare/v0.9.1...v0.10.0) (2026-04-06)
 
 
