@@ -39,6 +39,7 @@ cargo install --path . --features cuda   # Linux NVIDIA
 vox "Bonjour le monde"                  # Parler avec le backend par defaut
 vox -b voxtream "Zero-shot TTS."        # VoXtream2 (le plus rapide)
 vox -b kokoro -l fr "Bonjour"           # Kokoro avec langue
+vox --volume 2.0 "Plus fort !"         # Volume 2x (plage : 0.0–5.0)
 echo "Texte pipe" | vox                 # Lire depuis stdin
 vox setup                               # Configuration interactive (TUI)
 ```

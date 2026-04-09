@@ -98,6 +98,20 @@ pub struct SpeakRequest {
     pub ref_text: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default = "default_volume")]
+    pub volume: f32,
+}
+
+fn default_volume() -> f32 {
+    1.0
+}
+
+impl SpeakRequest {
+    /// Clamp volume to valid range after deserialization.
+    pub fn validated(mut self) -> Self {
+        self.volume = self.volume.clamp(0.0, 5.0);
+        self
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -412,7 +426,7 @@ async fn route(
         }
         ("POST", "/speak") => {
             let req: SpeakRequest = match serde_json::from_slice(body) {
-                Ok(r) => r,
+                Ok(r) => SpeakRequest::validated(r),
                 Err(e) => {
                     let resp = serde_json::json!({"success": false, "error": format!("invalid JSON: {e}")});
                     return ("400 Bad Request", resp.to_string());
@@ -433,6 +447,7 @@ async fn route(
 
                 let text = req.text.clone();
                 let ref_audio = req.ref_audio.clone();
+                let volume = req.volume;
                 let state_clone = Arc::clone(state);
 
                 let result = tokio::task::spawn_blocking(move || {
@@ -459,6 +474,7 @@ async fn route(
                     drop(server_guard);
 
                     // Play the WAV
+                    audio::apply_wav_gain(&wav_path, volume)?;
                     audio::play_wav_blocking(&wav_path)?;
                     let _ = std::fs::remove_file(&wav_path);
 
@@ -491,6 +507,7 @@ async fn route(
                     ref_audio: req.ref_audio.clone(),
                     ref_text: req.ref_text.clone(),
                     model: req.model.clone(),
+                    volume: req.volume,
                 };
                 let backend_name = req.backend.clone();
                 let text = req.text.clone();
@@ -550,6 +567,7 @@ pub fn speak_via_daemon(text: &str, backend: &str, opts: &SpeakOptions) -> Resul
         ref_audio: opts.ref_audio.clone(),
         ref_text: opts.ref_text.clone(),
         model: opts.model.clone(),
+        volume: opts.volume,
     };
 
     let resp: SpeakResponse = reqwest::blocking::Client::new()

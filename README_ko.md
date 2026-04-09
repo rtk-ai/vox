@@ -39,6 +39,7 @@ cargo install --path . --features cuda   # Linux NVIDIA
 vox "Hello, world."                     # 기본 백엔드로 읽기
 vox -b voxtream "Zero-shot TTS."        # VoXtream2 (가장 빠름)
 vox -b kokoro -l ko "안녕하세요"         # Kokoro 한국어
+vox --volume 2.0 "더 크게!"            # 2배 볼륨 (범위: 0.0–5.0)
 echo "파이프 텍스트" | vox               # 표준 입력에서 읽기
 vox setup                               # 대화형 설정 (TUI)
 ```

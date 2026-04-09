@@ -108,6 +108,7 @@ Linux requires `sudo apt install libasound2-dev`.
 vox "Hello, world."                     # Speak with default backend
 vox -b voxtream "Zero-shot TTS."        # VoXtream2 (fastest neural)
 vox -b kokoro -l fr "Bonjour"           # Kokoro with language
+vox --volume 2.0 "Louder!"             # 2x volume (range: 0.0–5.0)
 echo "Piped text" | vox                 # Read from stdin
 vox --list-voices                       # List available voices
 vox setup                               # Interactive TUI configuration

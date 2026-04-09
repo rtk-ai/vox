@@ -144,6 +144,7 @@ impl TtsBackend for VoxtreamBackend {
             anyhow::bail!("VoXtream2 TTS failed: {stderr}");
         }
 
+        audio::apply_wav_gain(&wav_path, opts.volume)?;
         audio::play_wav_blocking(&wav_path)?;
         let _ = std::fs::remove_file(&wav_path);
         Ok(())

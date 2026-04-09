@@ -179,6 +179,7 @@ impl TtsBackend for PiperBackend {
         }
         #[cfg(not(target_os = "macos"))]
         {
+            crate::audio::apply_wav_gain(&wav_path, opts.volume)?;
             crate::audio::play_wav_blocking(&wav_path)?;
         }
 

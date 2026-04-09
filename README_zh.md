@@ -39,6 +39,7 @@ cargo install --path . --features cuda   # Linux NVIDIA
 vox "Hello, world."                     # 使用默认后端朗读
 vox -b voxtream "Zero-shot TTS."        # VoXtream2（最快）
 vox -b kokoro -l zh "你好世界"           # Kokoro 中文
+vox --volume 2.0 "大声点！"            # 2倍音量（范围：0.0–5.0）
 echo "管道文本" | vox                    # 从标准输入读取
 vox setup                               # 交互式配置（TUI）
 ```

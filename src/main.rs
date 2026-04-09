@@ -7,6 +7,14 @@ use vox::backend::{self, SpeakOptions};
 use vox::config::DEFAULT_BACKEND;
 use vox::{clone, daemon, db, init, input, mcp, pack, tui};
 
+fn parse_volume(s: &str) -> Result<f32, String> {
+    let v: f32 = s.parse().map_err(|e| format!("{e}"))?;
+    if !(0.0..=5.0).contains(&v) {
+        return Err("volume must be between 0.0 and 5.0".to_string());
+    }
+    Ok(v)
+}
+
 #[derive(Parser)]
 #[command(name = "vox", version, about = "Voice Command — read text aloud")]
 struct Cli {
@@ -40,6 +48,10 @@ struct Cli {
     /// TTS model (e.g. mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit for faster inference)
     #[arg(short = 'm', long)]
     model: Option<String>,
+
+    /// Volume multiplier (1.0 = normal, 0.5 = half, 2.0 = double, range: 0.0–5.0)
+    #[arg(long, default_value = "1.0", value_parser = parse_volume)]
+    volume: f32,
 
     /// List available voices for the selected backend
     #[arg(long)]
@@ -313,6 +325,7 @@ fn handle_speak(cli: Cli) -> Result<()> {
         ref_audio,
         ref_text,
         model,
+        volume: cli.volume,
     };
 
     let start = Instant::now();

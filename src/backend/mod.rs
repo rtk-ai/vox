@@ -15,7 +15,7 @@ pub mod voxtream;
 
 use anyhow::Result;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SpeakOptions {
     pub voice: Option<String>,
     pub lang: Option<String>,
@@ -25,6 +25,23 @@ pub struct SpeakOptions {
     pub ref_audio: Option<String>,
     pub ref_text: Option<String>,
     pub model: Option<String>,
+    pub volume: f32,
+}
+
+impl Default for SpeakOptions {
+    fn default() -> Self {
+        Self {
+            voice: None,
+            lang: None,
+            rate: None,
+            gender: None,
+            style: None,
+            ref_audio: None,
+            ref_text: None,
+            model: None,
+            volume: 1.0,
+        }
+    }
 }
 
 pub trait TtsBackend {

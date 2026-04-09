@@ -23,8 +23,11 @@ enum Screen {
     Voice,
     Language,
     Style,
+    Volume,
     Test,
 }
+
+const VOLUME_PRESETS: &[&str] = &["0.5", "0.75", "1.0", "1.25", "1.5", "2.0", "3.0"];
 
 struct App {
     screen: Screen,
@@ -36,6 +39,7 @@ struct App {
     lang_idx: usize,
     styles: Vec<&'static str>,
     style_idx: usize,
+    volume_idx: usize,
     status: String,
     should_quit: bool,
 }
@@ -96,6 +100,8 @@ impl App {
             .and_then(|v| voices.iter().position(|x| x == v))
             .unwrap_or(0);
 
+        let volume_idx = VOLUME_PRESETS.iter().position(|x| *x == "1.0").unwrap_or(2);
+
         Ok(Self {
             screen: Screen::Backend,
             backends,
@@ -106,6 +112,7 @@ impl App {
             lang_idx,
             styles,
             style_idx,
+            volume_idx,
             status: "Arrow keys to navigate, Enter to select, Tab to switch section, T to test, S to save, Q to quit".into(),
             should_quit: false,
         })
@@ -139,13 +146,18 @@ impl App {
         if s == "(default)" { None } else { Some(s) }
     }
 
+    fn selected_volume(&self) -> f32 {
+        VOLUME_PRESETS[self.volume_idx].parse().unwrap_or(1.0)
+    }
+
     fn current_list_len(&self) -> usize {
         match self.screen {
             Screen::Backend => self.backends.len(),
             Screen::Voice => self.voices.len(),
             Screen::Language => self.languages.len(),
             Screen::Style => self.styles.len(),
-            Screen::Test => 2, // "Speak test" / "Back"
+            Screen::Volume => VOLUME_PRESETS.len(),
+            Screen::Test => 2,
         }
     }
 
@@ -155,6 +167,7 @@ impl App {
             Screen::Voice => self.voice_idx,
             Screen::Language => self.lang_idx,
             Screen::Style => self.style_idx,
+            Screen::Volume => self.volume_idx,
             Screen::Test => 0,
         }
     }
@@ -173,6 +186,7 @@ impl App {
             Screen::Voice => self.voice_idx = idx,
             Screen::Language => self.lang_idx = idx,
             Screen::Style => self.style_idx = idx,
+            Screen::Volume => self.volume_idx = idx,
             Screen::Test => {}
         }
     }
@@ -197,7 +211,8 @@ impl App {
             Screen::Backend => Screen::Voice,
             Screen::Voice => Screen::Language,
             Screen::Language => Screen::Style,
-            Screen::Style => Screen::Test,
+            Screen::Style => Screen::Volume,
+            Screen::Volume => Screen::Test,
             Screen::Test => Screen::Backend,
         };
     }
@@ -208,7 +223,8 @@ impl App {
             Screen::Voice => Screen::Backend,
             Screen::Language => Screen::Voice,
             Screen::Style => Screen::Language,
-            Screen::Test => Screen::Style,
+            Screen::Volume => Screen::Style,
+            Screen::Test => Screen::Volume,
         };
     }
 
@@ -218,6 +234,7 @@ impl App {
             voice: self.selected_voice().map(String::from),
             lang: Some(self.selected_lang().to_string()),
             style: self.selected_style().map(String::from),
+            volume: self.selected_volume(),
             ..Default::default()
         };
         let text = match self.selected_lang() {
@@ -302,12 +319,13 @@ fn draw(frame: &mut Frame, app: &App) {
         outer[0],
     );
 
-    // Main area: 5 columns
+    // Main area: 6 columns
     let cols = Layout::horizontal([
-        Constraint::Percentage(20),
-        Constraint::Percentage(25),
-        Constraint::Percentage(15),
-        Constraint::Percentage(20),
+        Constraint::Percentage(18),
+        Constraint::Percentage(22),
+        Constraint::Percentage(12),
+        Constraint::Percentage(16),
+        Constraint::Percentage(12),
         Constraint::Percentage(20),
     ])
     .split(outer[1]);
@@ -358,6 +376,18 @@ fn draw(frame: &mut Frame, app: &App) {
         cols[3],
     );
 
+    // Volume list
+    let volume_items: Vec<&str> = VOLUME_PRESETS.to_vec();
+    frame.render_widget(
+        render_list(
+            "Volume",
+            &volume_items,
+            app.volume_idx,
+            app.screen == Screen::Volume,
+        ),
+        cols[4],
+    );
+
     // Summary + actions
     let summary = vec![
         Line::from(vec![
@@ -382,6 +412,13 @@ fn draw(frame: &mut Frame, app: &App) {
                 Style::default().fg(Color::White),
             ),
         ]),
+        Line::from(vec![
+            Span::styled("Volume:  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{}x", VOLUME_PRESETS[app.volume_idx]),
+                Style::default().fg(Color::White),
+            ),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
             "[T] Test  [S] Save  [Q] Quit",
@@ -402,7 +439,7 @@ fn draw(frame: &mut Frame, app: &App) {
                 .title(" Config ")
                 .border_style(border_style),
         ),
-        cols[4],
+        cols[5],
     );
 
     // Status bar

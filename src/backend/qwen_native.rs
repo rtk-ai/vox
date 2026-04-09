@@ -89,7 +89,7 @@ impl TtsBackend for QwenNativeBackend {
         let ref_audio_path = opts.ref_audio.clone();
         let ref_text = opts.ref_text.clone();
 
-        let audio_buf = with_model(opts.model.as_deref(), |model| {
+        let mut audio_buf = with_model(opts.model.as_deref(), |model| {
             if let Some(ref path) = ref_audio_path {
                 let ref_audio = AudioBuffer::load(path)
                     .with_context(|| format!("failed to load reference audio: {path}"))?;
@@ -99,6 +99,13 @@ impl TtsBackend for QwenNativeBackend {
                 Ok(model.synthesize(text, None)?)
             }
         })?;
+
+        // Apply volume gain to audio buffer
+        if (opts.volume - 1.0).abs() > f32::EPSILON {
+            for sample in &mut audio_buf.samples {
+                *sample = (*sample * opts.volume).clamp(-1.0, 1.0);
+            }
+        }
 
         // Save to temp file and play with rodio
         let tmp = tempfile::NamedTempFile::new().context("failed to create temp file")?;

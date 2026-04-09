@@ -209,6 +209,10 @@ fn tool_definitions() -> Value {
                     "rate": {
                         "type": "integer",
                         "description": "Speech rate in words per minute (say backend only)"
+                    },
+                    "volume": {
+                        "type": "number",
+                        "description": "Volume multiplier (1.0 = normal, 0.5 = half, 2.0 = double)"
                     }
                 },
                 "required": ["text"]
@@ -487,6 +491,12 @@ fn tool_speak(args: &Value) -> ToolResult {
         .and_then(|v| v.as_str())
         .map(String::from)
         .or(prefs.style);
+    let volume = args
+        .get("volume")
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(1.0)
+        .clamp(0.0, 5.0);
 
     // Resolve voice clone
     let mut ref_audio = None;
@@ -525,6 +535,7 @@ fn tool_speak(args: &Value) -> ToolResult {
         ref_audio,
         ref_text,
         model: None,
+        volume,
     };
 
     let start = std::time::Instant::now();

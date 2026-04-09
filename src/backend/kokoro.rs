@@ -203,6 +203,7 @@ impl TtsBackend for KokoroBackend {
         let wav_path = tmp.path().with_extension("wav");
         write_wav(&wav_path, &samples, SAMPLE_RATE)?;
 
+        crate::audio::apply_wav_gain(&wav_path, opts.volume)?;
         crate::audio::play_wav_blocking(&wav_path)?;
         let _ = std::fs::remove_file(&wav_path);
         Ok(())

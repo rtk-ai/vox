@@ -39,6 +39,7 @@ cargo install --path . --features cuda   # Linux NVIDIA
 vox "Hello, world."                     # デフォルトバックエンドで読み上げ
 vox -b voxtream "Zero-shot TTS."        # VoXtream2（最速）
 vox -b kokoro -l ja "こんにちは"         # Kokoro 日本語
+vox --volume 2.0 "もっと大きく！"       # 2倍音量（範囲：0.0–5.0）
 echo "パイプテキスト" | vox              # 標準入力から読み取り
 vox setup                               # インタラクティブ設定（TUI）
 ```
