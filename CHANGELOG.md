@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0](https://github.com/rtk-ai/vox/compare/v0.12.0...v0.13.0) (2026-04-16)
+
+
+### Features
+
+* externalize model config to models.toml, mark kokoro as EN-only ([de5b587](https://github.com/rtk-ai/vox/commit/de5b5872672dece5dd5a3a8b8d7dc9f1401256a9))
+* replace Kokoro Python subprocess with pure Rust (kokoro-tts crate) ([a522b56](https://github.com/rtk-ai/vox/commit/a522b568c6bce14d1acb0a9149404ee1ca2c0e4e))
+
+
+### Bug Fixes
+
+* release workflow not uploading binary assets (fixes [#56](https://github.com/rtk-ai/vox/issues/56)) ([1cd8c02](https://github.com/rtk-ai/vox/commit/1cd8c02837793ded55993f4c118d7832ceb82fc0))
+* remove kokoro from TUI backend list (poor quality) ([c89c7bc](https://github.com/rtk-ai/vox/commit/c89c7bc7558c187412eeb3bcaad67267d269f54d))
+
 ## [0.12.0](https://github.com/rtk-ai/vox/compare/v0.11.0...v0.12.0) (2026-04-06)
 
 
