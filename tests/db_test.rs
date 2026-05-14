@@ -89,7 +89,15 @@ fn test_set_preference_invalid_rate() {
 #[test]
 fn test_set_preference_invalid_backend() {
     let conn = db::open_in_memory().unwrap();
-    assert!(db::set_preference(&conn, "backend", "piper").is_err());
+    assert!(db::set_preference(&conn, "backend", "nonexistent-backend").is_err());
+}
+
+#[test]
+fn test_set_preference_accepts_piper() {
+    let conn = db::open_in_memory().unwrap();
+    db::set_preference(&conn, "backend", "piper").unwrap();
+    let prefs = db::get_preferences(&conn).unwrap();
+    assert_eq!(prefs.backend.as_deref(), Some("piper"));
 }
 
 #[test]
