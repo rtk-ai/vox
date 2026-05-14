@@ -54,6 +54,7 @@ pub trait TtsBackend {
 /// Names of backends compiled into the current build. Single source of truth
 /// for backend validation (used by db preference setter, TUI, etc.).
 pub fn supported_backends() -> Vec<&'static str> {
+    #[allow(unused_mut)]
     let mut v: Vec<&'static str> = vec!["piper", "qwen-native", "voxtream"];
     #[cfg(feature = "kokoro")]
     v.push("kokoro");
