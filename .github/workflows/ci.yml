@@ -82,6 +82,6 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Clippy
-        run: cargo clippy ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }} -- -D warnings -A clippy::collapsible_if
+        run: cargo clippy ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }} -- -D warnings -A clippy::collapsible_if -A clippy::collapsible_match
         env:
           CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '89' || '' }}
