@@ -44,7 +44,11 @@ fn find_espeak_data(build_dir: &Path) -> Option<PathBuf> {
         if !name_str.starts_with("espeak-rs-sys-") {
             continue;
         }
-        let candidate = entry.path().join("out").join("share").join("espeak-ng-data");
+        let candidate = entry
+            .path()
+            .join("out")
+            .join("share")
+            .join("espeak-ng-data");
         if !candidate.is_dir() {
             continue;
         }
