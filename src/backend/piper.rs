@@ -4,9 +4,10 @@
 //! Zero Python dependency. Model files auto-downloaded from HuggingFace.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result};
+use include_dir::{Dir, include_dir};
 use piper_rs::Piper;
 
 use super::{SpeakOptions, TtsBackend};
@@ -18,8 +19,49 @@ pub struct PiperBackend;
 /// Reloads when language changes (different ONNX model per language).
 static MODEL: Mutex<Option<(String, Piper)>> = Mutex::new(None);
 
+/// espeak-ng-data embedded at build time (staged by build.rs into OUT_DIR).
+/// Needed because the espeak-ng library statically linked into vox has a
+/// hard-coded data path from the CI builder that does not exist on user
+/// machines. We extract this once and point espeak-rs at the result.
+static ESPEAK_DATA: Dir<'_> = include_dir!("$OUT_DIR/espeak-ng-data");
+
+static ESPEAK_DATA_INIT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
 fn models_dir() -> PathBuf {
     config::config_dir().join("piper")
+}
+
+/// Extract embedded espeak-ng-data to the user's config dir (once) and set the
+/// `PIPER_ESPEAKNG_DATA_DIRECTORY` env var so espeak-rs can locate it.
+fn ensure_espeak_data() -> Result<()> {
+    let result = ESPEAK_DATA_INIT.get_or_init(|| {
+        let parent = config::config_dir().join("piper");
+        let data_dir = parent.join("espeak-ng-data");
+        let sentinel = data_dir.join(".vox-extracted");
+
+        if !sentinel.exists() {
+            if data_dir.exists() {
+                std::fs::remove_dir_all(&data_dir).map_err(|e| e.to_string())?;
+            }
+            std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+            ESPEAK_DATA
+                .extract(&data_dir)
+                .map_err(|e| format!("failed to extract espeak-ng-data: {e}"))?;
+            std::fs::File::create(&sentinel).map_err(|e| e.to_string())?;
+        }
+
+        Ok(parent)
+    });
+
+    let parent = result.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    // SAFETY: espeak-rs reads this env var inside a OnceLock-guarded init that
+    // runs on the first phonemizer call. We set it before any piper call, so
+    // there is no race with other threads reading PIPER_ESPEAKNG_DATA_DIRECTORY.
+    unsafe {
+        std::env::set_var("PIPER_ESPEAKNG_DATA_DIRECTORY", parent);
+    }
+    Ok(())
 }
 
 /// Map lang code to (model_name, download_base_url).
@@ -113,6 +155,8 @@ fn ensure_model(lang: &str) -> Result<(PathBuf, PathBuf)> {
 fn get_or_load_model(
     lang: &str,
 ) -> Result<std::sync::MutexGuard<'static, Option<(String, Piper)>>> {
+    ensure_espeak_data()?;
+
     let mut guard = MODEL
         .lock()
         .map_err(|e| anyhow::anyhow!("model lock poisoned: {e}"))?;

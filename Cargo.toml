@@ -29,6 +29,7 @@ rodio = "0.20"
 hound = "3"
 qwen3-tts = { git = "https://github.com/TrevorS/qwen3-tts-rs", features = ["hub"], default-features = false }
 piper-rs = { git = "https://github.com/thewh1teagle/piper-rs" }
+include_dir = "0.7"
 kokoro-tts = { version = "0.3", optional = true }
 toml = "0.8"
 ratatui = "0.29"
