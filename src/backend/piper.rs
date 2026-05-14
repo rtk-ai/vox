@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result};
-use include_dir::{Dir, include_dir};
 use piper_rs::Piper;
+use rust_embed::RustEmbed;
 
 use super::{SpeakOptions, TtsBackend};
 use crate::config;
@@ -19,11 +19,14 @@ pub struct PiperBackend;
 /// Reloads when language changes (different ONNX model per language).
 static MODEL: Mutex<Option<(String, Piper)>> = Mutex::new(None);
 
-/// espeak-ng-data embedded at build time (staged by build.rs into OUT_DIR).
-/// Needed because the espeak-ng library statically linked into vox has a
-/// hard-coded data path from the CI builder that does not exist on user
-/// machines. We extract this once and point espeak-rs at the result.
-static ESPEAK_DATA: Dir<'_> = include_dir!("$OUT_DIR/espeak-ng-data");
+/// espeak-ng-data embedded (and DEFLATE-compressed) at build time. Staged
+/// into OUT_DIR by build.rs. Needed because the espeak-ng library statically
+/// linked into vox has a hard-coded data path from the CI builder that does
+/// not exist on user machines. We extract this once and point espeak-rs at
+/// the result.
+#[derive(RustEmbed)]
+#[folder = "$OUT_DIR/espeak-ng-data"]
+struct EspeakData;
 
 static ESPEAK_DATA_INIT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
 
@@ -44,9 +47,15 @@ fn ensure_espeak_data() -> Result<()> {
                 std::fs::remove_dir_all(&data_dir).map_err(|e| e.to_string())?;
             }
             std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
-            ESPEAK_DATA
-                .extract(&data_dir)
-                .map_err(|e| format!("failed to extract espeak-ng-data: {e}"))?;
+            for path in EspeakData::iter() {
+                let file = EspeakData::get(&path)
+                    .ok_or_else(|| format!("embedded espeak-ng-data entry vanished: {path}"))?;
+                let target = data_dir.join(path.as_ref());
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                std::fs::write(&target, file.data.as_ref()).map_err(|e| e.to_string())?;
+            }
             std::fs::File::create(&sentinel).map_err(|e| e.to_string())?;
         }
 
