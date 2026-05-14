@@ -123,8 +123,9 @@ fn backend_validation_rejects_unknown() {
 #[test]
 fn backend_validation_accepts_valid() {
     let conn = db::open_in_memory().unwrap();
-    // kokoro should always be valid on all platforms
-    assert!(db::set_preference(&conn, "backend", "kokoro").is_ok());
+    // piper and qwen-native are always compiled in.
+    assert!(db::set_preference(&conn, "backend", "piper").is_ok());
+    assert!(db::set_preference(&conn, "backend", "qwen-native").is_ok());
 }
 
 // ---------------------------------------------------------------------------

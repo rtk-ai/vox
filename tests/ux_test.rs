@@ -26,7 +26,7 @@ fn invalid_backend_shows_available_options() {
         .args(["config", "set", "backend", "nonexistent"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("kokoro").or(predicate::str::contains("say")));
+        .stderr(predicate::str::contains("piper").or(predicate::str::contains("qwen-native")));
 }
 
 #[test]
