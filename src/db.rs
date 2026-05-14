@@ -153,10 +153,7 @@ pub fn set_preference(conn: &Connection, key: &str, value: &str) -> Result<()> {
             }
         }
         "backend" => {
-            #[cfg(target_os = "macos")]
-            let valid_backends = ["kokoro", "say", "qwen", "qwen-native"];
-            #[cfg(not(target_os = "macos"))]
-            let valid_backends = ["kokoro", "qwen-native"];
+            let valid_backends = crate::backend::supported_backends();
             if !valid_backends.contains(&value) {
                 anyhow::bail!(
                     "Unknown backend: {value}. Must be one of: {}",

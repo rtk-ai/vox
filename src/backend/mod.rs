@@ -51,6 +51,20 @@ pub trait TtsBackend {
     fn is_available(&self) -> bool;
 }
 
+/// Names of backends compiled into the current build. Single source of truth
+/// for backend validation (used by db preference setter, TUI, etc.).
+pub fn supported_backends() -> Vec<&'static str> {
+    let mut v: Vec<&'static str> = vec!["piper", "qwen-native", "voxtream"];
+    #[cfg(feature = "kokoro")]
+    v.push("kokoro");
+    #[cfg(target_os = "macos")]
+    {
+        v.push("say");
+        v.push("qwen");
+    }
+    v
+}
+
 pub fn get_backend(name: &str) -> Result<Box<dyn TtsBackend>> {
     match name {
         #[cfg(feature = "kokoro")]
