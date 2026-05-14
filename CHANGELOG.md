@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.14.0](https://github.com/rtk-ai/vox/compare/v0.13.0...v0.14.0) (2026-05-14)
+
+
+### Features
+
+* add --volume flag for audio gain control ([6831a0a](https://github.com/rtk-ai/vox/commit/6831a0a5768111717bde070ef31d1bf96b5a1676))
+* add CUDA builds for Linux and Windows ([dc7f6c6](https://github.com/rtk-ai/vox/commit/dc7f6c64a7e7028bdf6378e200d500604ae110b8))
+
+
+### Bug Fixes
+
+* add missing CUDA libs to CI toolkit (nvrtc, cublas, curand) ([230fe07](https://github.com/rtk-ai/vox/commit/230fe079462ba9c7eb22be65ed5cac7c2b68879e))
+* align backend preference validation with runtime registry ([#61](https://github.com/rtk-ai/vox/issues/61)) ([02501d0](https://github.com/rtk-ai/vox/commit/02501d04aa30aff914d39c76270046a89dd52af1))
+* bundle espeak-ng-data inside binary (fixes [#59](https://github.com/rtk-ai/vox/issues/59)) ([#60](https://github.com/rtk-ai/vox/issues/60)) ([b251c3c](https://github.com/rtk-ai/vox/commit/b251c3c4e6cf061b7852c64be1bd3a0e296ab6ef))
+* CI failures — disable kokoro on Windows, fix clippy and example ([c24bd7a](https://github.com/rtk-ai/vox/commit/c24bd7a6b65889c9454da28f0c464bd139d67284))
+* clippy clone-on-copy, set CUDA_COMPUTE_CAP for CI builds ([554219d](https://github.com/rtk-ai/vox/commit/554219d30c85043701fd82540ceb78e1266e364d))
+* disable kokoro from default features, fix Linux cross-compile ([d0cdfa9](https://github.com/rtk-ai/vox/commit/d0cdfa9c45690f4822c3a0a9ec868efa9b541c47))
+* gate kokoro behind feature flag to fix Linux link error ([ae22cd2](https://github.com/rtk-ai/vox/commit/ae22cd2eea75ba8ea6d85b77ce84a1f081cca1fc))
+* install full CUDA toolkit in CI (cudarc needs many libs) ([28b040d](https://github.com/rtk-ai/vox/commit/28b040da3a99770c671fa856a4681a21d6c6bdde))
+* remove aarch64-linux cross-compile from release (not working in CI) ([8db035c](https://github.com/rtk-ai/vox/commit/8db035c9d7744d0d837fe61b63686ee54248da46))
+* remove x86_64-apple-darwin from release (ort has no prebuilt binaries) ([b565b9b](https://github.com/rtk-ai/vox/commit/b565b9b65e1a982ff6b1f3de26a21ae81458e1c2))
+
 ## [0.13.0](https://github.com/rtk-ai/vox/compare/v0.12.0...v0.13.0) (2026-04-16)
 
 
