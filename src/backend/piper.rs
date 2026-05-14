@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result};
 use piper_rs::Piper;
-use rust_embed::RustEmbed;
+use rust_embed::{Embed, RustEmbed};
 
 use super::{SpeakOptions, TtsBackend};
 use crate::config;
