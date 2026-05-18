@@ -706,7 +706,7 @@ fn handle_init(mode: InitMode) -> Result<()> {
                  \n\
                  Call the vox_speak MCP tool if available, otherwise run:\n\
                  ```bash\n\
-                 vox -b say \"$ARGUMENTS\"\n\
+                 vox \"$ARGUMENTS\"\n\
                  ```\n",
             )
             .context("cannot write skill file")?;
