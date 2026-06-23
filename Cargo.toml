@@ -34,6 +34,7 @@ kokoro-tts = { version = "0.3", optional = true }
 toml = "0.8"
 ratatui = "0.29"
 crossterm = "0.28"
+sys-locale = "0.3"
 
 [dev-dependencies]
 assert_cmd = "2"

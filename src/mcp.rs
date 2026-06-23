@@ -20,7 +20,7 @@ const SERVER_NAME: &str = "vox";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
-const VOX_INSTRUCTIONS: &str = "\
+const VOX_INSTRUCTIONS_TEMPLATE: &str = "\
 You have access to vox, a text-to-speech tool. Use it to give spoken feedback to the user.\n\
 \n\
 WHEN TO SPEAK (vox_speak):\n\
@@ -35,7 +35,7 @@ WHEN NOT TO SPEAK:\n\
 \n\
 GUIDELINES:\n\
 - Keep summaries under 2 sentences\n\
-- Use French by default (the user prefers it)\n\
+{language_guideline}\n\
 - Use vox_config_show to check the user's preferred voice/backend before first use\n\
 - For longer explanations, use vox_speak with a concise summary, not the full text\n\
 \n\
@@ -43,6 +43,39 @@ VOICE CONVERSATION (vox_hear + vox_speak):\n\
 You can have a voice conversation with the user — you ARE the brain, no API key needed.\n\
 Loop: vox_hear (listen) → you think → vox_speak (respond). Repeat until the user says goodbye.\n\
 When the user asks to \"chat\" or \"talk\" or \"parler\", start this loop.";
+
+fn configured_lang() -> Option<String> {
+    db::open()
+        .ok()
+        .and_then(|conn| db::get_preferences(&conn).ok())
+        .and_then(|prefs| prefs.lang)
+        .filter(|lang| !lang.is_empty())
+}
+
+fn normalize_locale(locale: &str) -> Option<String> {
+    let lang = locale.split(['-', '_']).next()?.to_lowercase();
+    crate::config::SUPPORTED_LANGS
+        .contains(&lang.as_str())
+        .then_some(lang)
+}
+
+fn system_lang() -> Option<String> {
+    normalize_locale(&sys_locale::get_locale()?)
+}
+
+fn default_lang() -> Option<String> {
+    configured_lang().or_else(system_lang)
+}
+
+fn vox_instructions(lang: Option<&str>) -> String {
+    let language_guideline = match lang {
+        Some(lang) => format!(
+            "- Speak in the user's language ({lang}); honour any language they explicitly ask for"
+        ),
+        None => "- Match the language the user is writing in".to_string(),
+    };
+    VOX_INSTRUCTIONS_TEMPLATE.replace("{language_guideline}", &language_guideline)
+}
 
 #[derive(Deserialize)]
 struct JsonRpcMessage {
@@ -144,7 +177,7 @@ fn handle_initialize(id: Value) -> JsonRpcResponse {
                 "name": SERVER_NAME,
                 "version": SERVER_VERSION
             },
-            "instructions": VOX_INSTRUCTIONS
+            "instructions": vox_instructions(default_lang().as_deref())
         }),
     )
 }
@@ -969,5 +1002,48 @@ fn tool_hear(args: &Value) -> ToolResult {
         } else {
             tool_ok(text)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn instructions_default_to_user_language_when_unset() {
+        let instructions = vox_instructions(None);
+        assert!(instructions.contains("Match the language the user is writing in"));
+        assert!(!instructions.contains("Use French by default"));
+    }
+
+    #[test]
+    fn instructions_follow_configured_language() {
+        assert!(vox_instructions(Some("fr")).contains("Speak in the user's language (fr)"));
+        assert!(vox_instructions(Some("es")).contains("Speak in the user's language (es)"));
+        assert!(vox_instructions(Some("ja")).contains("Speak in the user's language (ja)"));
+    }
+
+    #[test]
+    fn normalize_locale_maps_primary_subtag_when_supported() {
+        assert_eq!(normalize_locale("fr-FR"), Some("fr".to_string()));
+        assert_eq!(normalize_locale("en_US"), Some("en".to_string()));
+        assert_eq!(normalize_locale("de-AT"), Some("de".to_string()));
+        assert_eq!(normalize_locale("FR"), Some("fr".to_string()));
+        assert_eq!(normalize_locale("zh-Hant"), Some("zh".to_string()));
+    }
+
+    #[test]
+    fn normalize_locale_rejects_unsupported_or_empty() {
+        assert_eq!(normalize_locale("cy-GB"), None);
+        assert_eq!(normalize_locale("C"), None);
+        assert_eq!(normalize_locale(""), None);
+    }
+
+    #[test]
+    fn system_lang_is_supported_or_none() {
+        assert!(
+            system_lang()
+                .is_none_or(|lang| crate::config::SUPPORTED_LANGS.contains(&lang.as_str()))
+        );
     }
 }
