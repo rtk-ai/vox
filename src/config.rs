@@ -4,6 +4,16 @@ use std::path::PathBuf;
 
 pub const DEFAULT_BACKEND: &str = "pocket";
 
+/// Language-aware default backend, used when neither the CLI flag nor a
+/// stored preference selects one. The pocket checkpoint is English-only, so
+/// non-English languages fall back to piper (per-language voices).
+pub fn default_backend_for_lang(lang: Option<&str>) -> &'static str {
+    match lang {
+        None | Some("en") => DEFAULT_BACKEND,
+        Some(_) => "piper",
+    }
+}
+
 pub const SUPPORTED_LANGS: &[&str] = &[
     "en", "fr", "es", "de", "it", "pt", "zh", "ja", "ko", "ru", "ar", "nl",
 ];

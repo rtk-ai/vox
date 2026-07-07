@@ -7,7 +7,7 @@ fn test_claude_md_block_contains_markers() {
     let block = init::claude_md_block();
     assert!(block.contains("<!-- vox:start -->"));
     assert!(block.contains("<!-- vox:end -->"));
-    assert!(block.contains("vox -b say"));
+    assert!(block.contains("vox -l fr"));
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn test_build_settings_fresh() {
 
     assert!(parsed["hooks"]["Stop"].is_array());
     let stop = &parsed["hooks"]["Stop"][0];
-    assert_eq!(stop["hooks"][0]["command"], "vox -b say \"Terminé.\"");
+    assert_eq!(stop["hooks"][0]["command"], "vox -l fr \"Terminé.\"");
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn test_build_settings_merge_existing() {
     assert!(parsed["hooks"]["Stop"].is_array());
     assert_eq!(
         parsed["hooks"]["Stop"][0]["hooks"][0]["command"],
-        "vox -b say \"Terminé.\""
+        "vox -l fr \"Terminé.\""
     );
 }
 

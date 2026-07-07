@@ -120,7 +120,8 @@ Linux requires `sudo apt install libasound2-dev`.
 
 | Platform | Default backend | Notes |
 |----------|----------------|-------|
-| All | `pocket` | Public weights auto-download on first use (~226 MB) |
+| All (English or no `-l`) | `pocket` | Public weights auto-download on first use (~226 MB) |
+| All (other languages) | `piper` | The pocket checkpoint is English-only; piper has per-language voices |
 
 ### VoXtream backend (optional)
 

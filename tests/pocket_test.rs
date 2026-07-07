@@ -31,3 +31,12 @@ fn test_pocket_get_backend() {
     let backend = vox::backend::get_backend("pocket").unwrap();
     assert_eq!(backend.name(), "pocket");
 }
+
+#[test]
+fn test_default_backend_for_lang() {
+    use vox::config::default_backend_for_lang;
+    assert_eq!(default_backend_for_lang(None), "pocket");
+    assert_eq!(default_backend_for_lang(Some("en")), "pocket");
+    assert_eq!(default_backend_for_lang(Some("fr")), "piper");
+    assert_eq!(default_backend_for_lang(Some("de")), "piper");
+}

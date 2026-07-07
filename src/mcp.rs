@@ -458,24 +458,27 @@ fn tool_speak(args: &Value) -> ToolResult {
     };
     let prefs = db::get_preferences(&conn).unwrap_or_default();
 
-    // Merge MCP args > DB preferences > defaults
+    let lang = args
+        .get("lang")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .or(prefs.lang);
+
+    // Merge MCP args > DB preferences > language-aware defaults
     let backend_name = args
         .get("backend")
         .and_then(|v| v.as_str())
         .map(String::from)
         .or(prefs.backend)
-        .unwrap_or_else(|| crate::config::DEFAULT_BACKEND.to_string());
+        .unwrap_or_else(|| {
+            crate::config::default_backend_for_lang(lang.as_deref()).to_string()
+        });
 
     let mut voice = args
         .get("voice")
         .and_then(|v| v.as_str())
         .map(String::from)
         .or(prefs.voice);
-    let lang = args
-        .get("lang")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(prefs.lang);
     let rate = args
         .get("rate")
         .and_then(|v| v.as_u64())
