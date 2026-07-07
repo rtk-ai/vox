@@ -53,6 +53,9 @@
 > \* `pocket` ships 8 predefined voices with zero setup (public weights). Voice cloning
 > from a reference WAV needs `HF_TOKEN` and the gated
 > [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) license accepted.
+> The bundled checkpoint is **English-only** (all 8 voices are English speakers);
+> Kyutai's per-language checkpoints (fr/de/es/it/pt) need upstream support in the
+> pocket-tts crate and are not wired up yet.
 
 ### Benchmark — single sentence (~50 chars)
 
@@ -62,7 +65,7 @@ All times measured end-to-end (model loading + inference + audio playback). Cold
 |---------|-------------:|-------------------------:|:---:|---------|
 | **`say`** | **3s** | macOS only | No | System voices |
 | **`piper`** | **<1s** | <1s | No | Good |
-| **`pocket`** (Kyutai, 100M) | TBD | TBD | Yes | Very good — faster than real-time on CPU¹ |
+| **`pocket`** (Kyutai, 100M) | TBD | TBD | Yes | Very good (EN only) — faster than real-time on CPU¹ |
 | **`kokoro`** | **<1s** | macOS only | No | Fair (EN only) |
 | **`voxtream`** (VoXtream2, 0.5B) | **68s** / 40s warm | **23s** / **19s** warm | Yes (zero-shot) | Excellent |
 | **`qwen-native`** (Qwen3-TTS, 0.6B) | **11m33s** / 3s warm | **48s** (CPU) | Yes | Excellent |
