@@ -14,6 +14,10 @@ jobs:
   test:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    # CUDA matrix entries are best-effort: GH-hosted runners' kernel mismatch
+    # currently breaks nvidia-dkms (Jimver/cuda-toolkit action). Mirror the
+    # non-blocking behavior already applied in release.yml.
+    continue-on-error: ${{ matrix.cuda == true }}
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +61,16 @@ jobs:
         with:
           cuda: '12.6.3'
           method: network
+
+      # esaxx-rs forces /MT via .static_crt(true) but ort-sys prebuilt links
+      # against /MD. Force /MD on Windows so cc's last flag wins and the
+      # CRT matches ort-sys. Without this, link fails with LNK2038.
+      - name: Set Windows MSVC runtime flags
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          echo "CFLAGS=/MD" >> $env:GITHUB_ENV
+          echo "CXXFLAGS=/MD" >> $env:GITHUB_ENV
 
       - name: Cache cargo
         uses: actions/cache@v4
