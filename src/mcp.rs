@@ -470,9 +470,7 @@ fn tool_speak(args: &Value) -> ToolResult {
         .and_then(|v| v.as_str())
         .map(String::from)
         .or(prefs.backend)
-        .unwrap_or_else(|| {
-            crate::config::default_backend_for_lang(lang.as_deref()).to_string()
-        });
+        .unwrap_or_else(|| crate::config::default_backend_for_lang(lang.as_deref()).to_string());
 
     let mut voice = args
         .get("voice")

@@ -32,7 +32,8 @@ const MODEL_VARIANT: &str = "b6369a24";
 const CONFIG_TEMPLATE: &str = include_str!("pocket_config_b6369a24.yaml");
 
 /// Gated weights with voice cloning support (requires HF_TOKEN).
-const WEIGHTS_CLONING: &str = "hf://kyutai/pocket-tts/tts_b6369a24.safetensors@427e3d61b276ed69fdd03de0d185fa8a8d97fc5b";
+const WEIGHTS_CLONING: &str =
+    "hf://kyutai/pocket-tts/tts_b6369a24.safetensors@427e3d61b276ed69fdd03de0d185fa8a8d97fc5b";
 
 /// Public weights without voice cloning.
 const WEIGHTS_PUBLIC: &str = "hf://kyutai/pocket-tts-without-voice-cloning/tts_b6369a24.safetensors@d4fdd22ae8c8e1cb3634e150ebeff1dab2d16df3";
@@ -100,9 +101,7 @@ where
         }
         eprintln!("Loading pocket-tts model {MODEL_VARIANT} (downloading if needed)...");
         let variant = ensure_config(cloning)?;
-        let variant = variant
-            .to_str()
-            .context("config path is not valid UTF-8")?;
+        let variant = variant.to_str().context("config path is not valid UTF-8")?;
         let model = TTSModel::load(variant).context("failed to load pocket-tts model")?;
         *guard = Some(model);
     }
