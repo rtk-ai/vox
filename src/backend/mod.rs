@@ -6,6 +6,7 @@
 #[cfg(feature = "kokoro")]
 pub mod kokoro;
 pub mod piper;
+pub mod pocket;
 #[cfg(target_os = "macos")]
 pub mod qwen;
 pub mod qwen_native;
@@ -55,7 +56,7 @@ pub trait TtsBackend {
 /// for backend validation (used by db preference setter, TUI, etc.).
 pub fn supported_backends() -> Vec<&'static str> {
     #[allow(unused_mut)]
-    let mut v: Vec<&'static str> = vec!["piper", "qwen-native", "voxtream"];
+    let mut v: Vec<&'static str> = vec!["piper", "pocket", "qwen-native", "voxtream"];
     #[cfg(feature = "kokoro")]
     v.push("kokoro");
     #[cfg(target_os = "macos")]
@@ -77,6 +78,7 @@ pub fn get_backend(name: &str) -> Result<Box<dyn TtsBackend>> {
         "qwen-native" => Ok(Box::new(qwen_native::QwenNativeBackend)),
         "voxtream" => Ok(Box::new(voxtream::VoxtreamBackend)),
         "piper" => Ok(Box::new(piper::PiperBackend)),
+        "pocket" => Ok(Box::new(pocket::PocketBackend)),
         #[cfg(not(target_os = "macos"))]
         "say" | "qwen" => {
             anyhow::bail!("Backend '{name}' is only available on macOS. Use 'qwen-native' instead.")

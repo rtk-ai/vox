@@ -5,7 +5,7 @@
 <h1 align="center">vox</h1>
 
 <p align="center">
-  Cross-platform TTS CLI with six backends and MCP server for AI assistants.
+  Cross-platform TTS CLI with seven backends and MCP server for AI assistants.
 </p>
 
 <p align="center">
@@ -28,12 +28,12 @@
 ```
                               vox
                                |
-       +--------+--------+----+----+--------+--------+
-       |        |        |         |        |        |
-     say     piper    qwen-native kokoro  voxtream  qwen
-   (macOS)  (Rust/ort) (Rust/candle) (ONNX) (zero-shot) (MLX/Py)
-   native   CPU       CPU/Metal  opt-in  CUDA/MPS  Apple Si.
-                       /CUDA
+       +--------+--------+----+----+--------+--------+--------+
+       |        |        |         |        |        |        |
+     say     piper    pocket   qwen-native kokoro  voxtream  qwen
+   (macOS)  (Rust/ort) (Rust/candle) (Rust/candle) (ONNX) (zero-shot) (MLX/Py)
+   native   CPU       CPU       CPU/Metal  opt-in  CUDA/MPS  Apple Si.
+                                 /CUDA
                          |
                        rodio (audio playback)
 ```
@@ -44,10 +44,15 @@
 |---------|--------|:---:|---:|:---:|----------|
 | `say` | macOS native | No | **3s** | No | macOS |
 | `piper` | ONNX (Rust) | No | **<1s** | No | All |
+| `pocket` | Candle (Rust, 100M) | Yes* | **~2s** | No (CPU-first) | All |
 | `qwen-native` | Candle (Rust) | Yes | **~3s** | Metal/CUDA | All |
 | `kokoro` | ONNX (Rust, opt-in) | No | **<1s** | No | macOS only |
 | `voxtream` | PyTorch 0.5B | Yes | **~8s** | CUDA/MPS | All |
 | `qwen` | MLX-Audio (Python) | Yes | **~2s** | Apple Neural | macOS |
+
+> \* `pocket` ships 8 predefined voices with zero setup (public weights). Voice cloning
+> from a reference WAV needs `HF_TOKEN` and the gated
+> [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) license accepted.
 
 ### Benchmark — single sentence (~50 chars)
 
@@ -57,6 +62,7 @@ All times measured end-to-end (model loading + inference + audio playback). Cold
 |---------|-------------:|-------------------------:|:---:|---------|
 | **`say`** | **3s** | macOS only | No | System voices |
 | **`piper`** | **<1s** | <1s | No | Good |
+| **`pocket`** (Kyutai, 100M) | TBD | TBD | Yes | Very good — faster than real-time on CPU¹ |
 | **`kokoro`** | **<1s** | macOS only | No | Fair (EN only) |
 | **`voxtream`** (VoXtream2, 0.5B) | **68s** / 40s warm | **23s** / **19s** warm | Yes (zero-shot) | Excellent |
 | **`qwen-native`** (Qwen3-TTS, 0.6B) | **11m33s** / 3s warm | **48s** (CPU) | Yes | Excellent |
@@ -69,6 +75,7 @@ All times measured end-to-end (model loading + inference + audio playback). Cold
 | **`voxtream`** | **32s** | Inference CPU-bound (~25s). On CUDA: paper reports 74ms first-packet |
 | **`qwen-native`** | **~3s** | Model stays in RAM via global Mutex |
 
+> ¹ `pocket` measured 7–14s end-to-end cold (model load + generation + full playback of 5–9s audio) on an i7-1065G7 laptop CPU — generation itself runs faster than real-time. M2 Pro / RTX numbers to be measured.
 > All CUDA benchmarks measured on RTX 4070 Ti SUPER (16GB).
 > For lowest latency: `say` (macOS) or `piper` (all platforms). For best quality + cloning: `voxtream` on CUDA with daemon.
 
@@ -110,8 +117,7 @@ Linux requires `sudo apt install libasound2-dev`.
 
 | Platform | Default backend | Notes |
 |----------|----------------|-------|
-| macOS | `say` | No setup needed |
-| Linux / Windows | `piper` | Models auto-download on first use |
+| All | `pocket` | Public weights auto-download on first use (~226 MB) |
 
 ### VoXtream backend (optional)
 
