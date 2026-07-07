@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/rtk-ai/vox/compare/v0.14.0...v0.15.0) (2026-07-07)
+
+
+### Features
+
+* add pocket backend (Kyutai pocket-tts, pure Rust CPU) and make it the default ([#68](https://github.com/rtk-ai/vox/issues/68)) ([61acdd6](https://github.com/rtk-ai/vox/commit/61acdd68fa7a98f6fcf4c54c1ac8ce0c0ca151eb))
+
+
+### Bug Fixes
+
+* respect configured/system lang in MCP instructions instead of hardcoding French ([#67](https://github.com/rtk-ai/vox/issues/67)) ([ac63bf1](https://github.com/rtk-ai/vox/commit/ac63bf1509f8161510fd1a0906f97b9b43f10704))
+
 ## [0.14.0](https://github.com/rtk-ai/vox/compare/v0.13.0...v0.14.0) (2026-05-14)
 
 

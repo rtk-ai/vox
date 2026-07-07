@@ -1,6 +1,6 @@
 [package]
 name = "vox"
-version = "0.14.0"
+version = "0.15.0"
 edition = "2024"
 description = "Cross-platform TTS CLI — local voice synthesis with seven backends and an MCP server"
 license = "Apache-2.0"
