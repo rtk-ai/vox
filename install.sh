@@ -47,10 +47,7 @@ get_target() {
     case "$OS" in
         darwin) TARGET="${ARCH}-apple-darwin";;
         linux)
-            if [ "$ARCH" != "x86_64" ]; then
-                error "Linux builds are only available for x86_64 (got: $ARCH)"
-            fi
-            TARGET="x86_64-unknown-linux-gnu"
+            TARGET="${ARCH}-unknown-linux-gnu"
             ;;
     esac
 }

@@ -45,6 +45,14 @@ jobs:
             archive: tar.gz
             deps: libasound2-dev
             artifact_suffix: ""
+            packages: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            features: ""
+            archive: tar.gz
+            deps: libasound2-dev
+            artifact_suffix: ""
+            packages: true
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             features: cuda
@@ -106,11 +114,26 @@ jobs:
           7z a ../../../vox-${{ matrix.target }}${{ matrix.artifact_suffix }}.zip vox.exe
           cd ../../..
 
+      - name: Package (deb + rpm)
+        if: matrix.packages == true
+        # Runners are native for both Linux targets, so arch inference from the
+        # host is correct and we can use the default target/release layout.
+        run: |
+          cargo install cargo-deb cargo-generate-rpm --locked
+          mkdir -p target/release
+          cp target/${{ matrix.target }}/release/vox target/release/vox
+          cargo deb --no-build --output vox-${{ matrix.target }}.deb
+          cargo generate-rpm --output vox-${{ matrix.target }}.rpm
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: vox-${{ matrix.target }}${{ matrix.artifact_suffix }}
-          path: vox-${{ matrix.target }}${{ matrix.artifact_suffix }}.${{ matrix.archive }}
+          path: |
+            vox-${{ matrix.target }}${{ matrix.artifact_suffix }}.${{ matrix.archive }}
+            vox-${{ matrix.target }}.deb
+            vox-${{ matrix.target }}.rpm
+          if-no-files-found: error
 
   release:
     name: Upload Release Assets
@@ -138,7 +161,7 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release/ \;
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" -o -name "*.rpm" \) -exec cp {} release/ \;
           echo "=== Release assets ==="
           ls -lh release/
 
@@ -183,7 +206,8 @@ jobs:
         run: |
           echo "arm=$(grep aarch64-apple-darwin checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
           echo "intel=$(grep x86_64-apple-darwin checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "linux=$(grep x86_64-unknown-linux-gnu checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "linux=$(grep 'x86_64-unknown-linux-gnu.tar.gz' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "linuxarm=$(grep 'aarch64-unknown-linux-gnu.tar.gz' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
 
       - name: Update formula
         run: |
@@ -212,6 +236,10 @@ jobs:
                 url "https://github.com/rtk-ai/vox/releases/download/TAG_PLACEHOLDER/vox-x86_64-unknown-linux-gnu.tar.gz"
                 sha256 "SHA_LINUX_PLACEHOLDER"
               end
+              on_arm do
+                url "https://github.com/rtk-ai/vox/releases/download/TAG_PLACEHOLDER/vox-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "SHA_LINUX_ARM_PLACEHOLDER"
+              end
             end
 
             def install
@@ -228,6 +256,7 @@ jobs:
           sed -i "s/SHA_INTEL_PLACEHOLDER/${{ steps.sha.outputs.intel }}/g" vox.rb
           sed -i "s/SHA_ARM_PLACEHOLDER/${{ steps.sha.outputs.arm }}/g" vox.rb
           sed -i "s/SHA_LINUX_PLACEHOLDER/${{ steps.sha.outputs.linux }}/g" vox.rb
+          sed -i "s/SHA_LINUX_ARM_PLACEHOLDER/${{ steps.sha.outputs.linuxarm }}/g" vox.rb
           # Remove leading spaces from heredoc
           sed -i 's/^          //' vox.rb
 

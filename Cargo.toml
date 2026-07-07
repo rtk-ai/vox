@@ -2,11 +2,32 @@
 name = "vox"
 version = "0.14.0"
 edition = "2024"
-description = "Cross-platform TTS CLI — local voice synthesis with Qwen and system say"
+description = "Cross-platform TTS CLI — local voice synthesis with seven backends and an MCP server"
 license = "Apache-2.0"
 repository = "https://github.com/rtk-ai/vox"
 keywords = ["tts", "voice", "speech", "cli"]
 categories = ["command-line-utilities", "multimedia::audio"]
+
+[package.metadata.deb]
+maintainer = "Patrick <patrick@rtk-ai.app>"
+copyright = "2026, rtk-ai"
+extended-description = "Local text-to-speech CLI with multiple backends (Kyutai pocket-tts, Piper, Qwen3-TTS) and an MCP server for AI assistants."
+section = "sound"
+priority = "optional"
+depends = "libasound2t64 | libasound2"
+assets = [
+    ["target/release/vox", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/vox/README", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/vox", dest = "/usr/bin/vox", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/vox/README", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+alsa-lib = "*"
 
 [features]
 default = []

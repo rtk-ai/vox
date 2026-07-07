@@ -87,7 +87,7 @@ All times measured end-to-end (model loading + inference + audio playback). Cold
 ### Pre-built binaries (recommended)
 
 ```bash
-# Quick install (macOS ARM / Linux x86_64)
+# Quick install (macOS ARM / Linux x86_64 & ARM64)
 curl -fsSL https://raw.githubusercontent.com/rtk-ai/vox/main/install.sh | sh
 
 # Homebrew (macOS)
@@ -101,6 +101,9 @@ Pre-built binaries are available for each release:
 | macOS (Apple Silicon) | `vox-aarch64-apple-darwin.tar.gz` | Metal |
 | Linux x86_64 | `vox-x86_64-unknown-linux-gnu.tar.gz` | CPU |
 | Linux x86_64 + CUDA | `vox-x86_64-unknown-linux-gnu-cuda.tar.gz` | CUDA |
+| Linux ARM64 | `vox-aarch64-unknown-linux-gnu.tar.gz` | CPU |
+| Linux (Debian/Ubuntu) | `vox-{x86_64,aarch64}-unknown-linux-gnu.deb` | CPU |
+| Linux (Fedora/RHEL) | `vox-{x86_64,aarch64}-unknown-linux-gnu.rpm` | CPU |
 | Windows x86_64 | `vox-x86_64-pc-windows-msvc.zip` | CPU |
 | Windows x86_64 + CUDA | `vox-x86_64-pc-windows-msvc-cuda.zip` | CUDA |
 
