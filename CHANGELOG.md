@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/rtk-ai/vox/compare/v0.15.0...v0.15.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **install:** support VOX_INSTALL_DIR and fall back to ~/.local/bin without sudo ([#71](https://github.com/rtk-ai/vox/issues/71)) ([c92366a](https://github.com/rtk-ai/vox/commit/c92366aea6b88d9ebadc2c5ceba37f6fd7662177)), closes [#70](https://github.com/rtk-ai/vox/issues/70)
+
 ## [0.15.0](https://github.com/rtk-ai/vox/compare/v0.14.0...v0.15.0) (2026-07-07)
 
 
