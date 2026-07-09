@@ -90,9 +90,15 @@ All times measured end-to-end (model loading + inference + audio playback). Cold
 # Quick install (macOS ARM / Linux x86_64 & ARM64)
 curl -fsSL https://raw.githubusercontent.com/rtk-ai/vox/main/install.sh | sh
 
+# Custom install dir (no sudo needed)
+curl -fsSL https://raw.githubusercontent.com/rtk-ai/vox/main/install.sh | VOX_INSTALL_DIR=~/.local/bin sh
+
 # Homebrew (macOS)
 brew install rtk-ai/tap/vox
 ```
+
+The installer defaults to `/usr/local/bin` (with sudo if needed). When sudo is
+not usable (CI, agents, no TTY), it falls back to `~/.local/bin` automatically.
 
 Pre-built binaries are available for each release:
 

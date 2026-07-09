@@ -1,12 +1,22 @@
 #!/bin/sh
 # vox installer - https://github.com/rtk-ai/vox
 # Usage: curl -fsSL https://raw.githubusercontent.com/rtk-ai/vox/main/install.sh | sh
+# Custom install dir: curl -fsSL ... | VOX_INSTALL_DIR=~/.local/bin sh
 
 set -e
 
 REPO="rtk-ai/vox"
 BINARY_NAME="vox"
-INSTALL_DIR="/usr/local/bin"
+DEFAULT_INSTALL_DIR="/usr/local/bin"
+FALLBACK_INSTALL_DIR="${HOME}/.local/bin"
+
+if [ -n "${VOX_INSTALL_DIR:-}" ]; then
+    INSTALL_DIR="$VOX_INSTALL_DIR"
+    EXPLICIT_INSTALL_DIR=1
+else
+    INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+    EXPLICIT_INSTALL_DIR=""
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -59,6 +69,37 @@ get_latest_version() {
     fi
 }
 
+# True when sudo can actually be used: either cached/passwordless credentials,
+# or a controlling terminal is available for the password prompt (a plain
+# `curl | sh` has no usable stdin, but sudo prompts via /dev/tty).
+can_sudo() {
+    command -v sudo >/dev/null 2>&1 || return 1
+    if sudo -n true 2>/dev/null; then
+        return 0
+    fi
+    ( : < /dev/tty ) 2>/dev/null
+}
+
+place_binary() {
+    mkdir -p "$INSTALL_DIR" 2>/dev/null || true
+
+    if [ -d "$INSTALL_DIR" ] && [ -w "$INSTALL_DIR" ]; then
+        mv "${TEMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/"
+    elif can_sudo; then
+        info "Requesting sudo to install to $INSTALL_DIR"
+        sudo mkdir -p "$INSTALL_DIR"
+        sudo mv "${TEMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/"
+    elif [ -z "$EXPLICIT_INSTALL_DIR" ]; then
+        warn "$INSTALL_DIR is not writable and sudo is not available."
+        warn "Falling back to $FALLBACK_INSTALL_DIR"
+        INSTALL_DIR="$FALLBACK_INSTALL_DIR"
+        mkdir -p "$INSTALL_DIR"
+        mv "${TEMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/"
+    else
+        error "Cannot write to $INSTALL_DIR and sudo is not available. Set VOX_INSTALL_DIR to a writable directory."
+    fi
+}
+
 install() {
     info "Detected: $OS $ARCH"
     info "Target: $TARGET"
@@ -76,14 +117,11 @@ install() {
     info "Extracting..."
     tar -xzf "$ARCHIVE" -C "$TEMP_DIR"
 
-    if [ -w "$INSTALL_DIR" ]; then
-        mv "${TEMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/"
-    else
-        info "Requesting sudo to install to $INSTALL_DIR"
-        sudo mv "${TEMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/"
-    fi
+    # chmod before moving: after `sudo mv` the user may not own the file anymore
+    chmod +x "${TEMP_DIR}/${BINARY_NAME}"
 
-    chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+    place_binary
+
     rm -rf "$TEMP_DIR"
 
     info "Successfully installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
