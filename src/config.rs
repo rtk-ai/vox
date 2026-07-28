@@ -110,16 +110,14 @@ static MODELS_TOML: &str = include_str!("../models.toml");
 /// Load model config: user override takes precedence, then bundled defaults.
 pub fn load_models_config() -> toml::Table {
     let user_path = config_dir().join("models.toml");
-    if user_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&user_path) {
-            if let Ok(table) = content.parse::<toml::Table>() {
-                return table;
-            }
-            eprintln!(
-                "Warning: invalid models.toml at {}, using defaults",
-                user_path.display()
-            );
+    if user_path.exists() && let Ok(content) = std::fs::read_to_string(&user_path) {
+        if let Ok(table) = content.parse::<toml::Table>() {
+            return table;
         }
+        eprintln!(
+            "Warning: invalid models.toml at {}, using defaults",
+            user_path.display()
+        );
     }
     MODELS_TOML
         .parse::<toml::Table>()

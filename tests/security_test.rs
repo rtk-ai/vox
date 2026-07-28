@@ -103,7 +103,7 @@ fn audio_validation_rejects_no_extension() {
 #[test]
 fn audio_validation_accepts_valid_extensions() {
     for ext in &["wav", "mp3", "flac", "ogg", "m4a"] {
-        let tmp = tempfile::NamedTempFile::with_suffix(&format!(".{ext}")).unwrap();
+        let tmp = tempfile::NamedTempFile::with_suffix(format!(".{ext}")).unwrap();
         let result = clone::validate_audio(tmp.path().to_str().unwrap());
         assert!(result.is_ok(), "Should accept .{ext}");
     }

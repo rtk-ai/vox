@@ -36,10 +36,10 @@ pub fn default_prompt_audio() -> Result<PathBuf> {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
-        if let Ok(s) = status {
-            if s.success() && path.exists() {
-                return Ok(path);
-            }
+        if let Ok(s) = status
+            && s.success() && path.exists()
+        {
+            return Ok(path);
         }
     }
 
@@ -60,10 +60,9 @@ pub fn find_voxtream() -> Option<PathBuf> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
+        && status.success()
     {
-        if status.success() {
-            return Some(PathBuf::from("voxtream"));
-        }
+        return Some(PathBuf::from("voxtream"));
     }
 
     // Check common venv locations

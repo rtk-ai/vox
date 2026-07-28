@@ -99,7 +99,7 @@ fn test_qwen_build_generate_command_to_file_basic() {
     assert!(!args.contains(&std::ffi::OsStr::new("--play")));
     assert!(!args.contains(&std::ffi::OsStr::new("--stream")));
     // Must have current_dir set
-    assert_eq!(cmd.get_current_dir(), Some(dir.as_ref()));
+    assert_eq!(cmd.get_current_dir(), Some(dir));
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn test_qwen_build_generate_command_to_file_with_ref_audio() {
     assert!(args.contains(&std::ffi::OsStr::new("reference transcription")));
     assert!(!args.contains(&std::ffi::OsStr::new("--play")));
     assert!(!args.contains(&std::ffi::OsStr::new("--stream")));
-    assert_eq!(cmd.get_current_dir(), Some(dir.as_ref()));
+    assert_eq!(cmd.get_current_dir(), Some(dir));
 }
 
 // --- split_sentences ---
