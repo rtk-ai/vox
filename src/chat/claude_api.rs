@@ -134,7 +134,10 @@ async fn stream_claude_inner(
         .context("Failed to call Claude API")?;
 
     if !resp.status().is_success() {
-        let body = resp.text().await.unwrap_or_else(|_| "(failed to read error body)".to_string());
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "(failed to read error body)".to_string());
         anyhow::bail!("Claude API error: {body}");
     }
 

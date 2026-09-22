@@ -37,7 +37,8 @@ pub fn default_prompt_audio() -> Result<PathBuf> {
             .stderr(Stdio::null())
             .status();
         if let Ok(s) = status
-            && s.success() && path.exists()
+            && s.success()
+            && path.exists()
         {
             return Ok(path);
         }

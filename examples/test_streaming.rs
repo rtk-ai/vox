@@ -112,8 +112,7 @@ fn run_qwen_native_loop(
 
     while let Ok(Some(sentence)) = rx.recv() {
         qwen_native::with_model(None, |model| {
-            let audio =
-                model.synthesize_with_voice(&sentence, Speaker::Ryan, lang, None)?;
+            let audio = model.synthesize_with_voice(&sentence, Speaker::Ryan, lang, None)?;
             let sr = audio.sample_rate;
             let mut samples = audio.samples;
             let overlap = ((sr as usize * CROSSFADE_MS) / 1000).min(samples.len());
@@ -156,11 +155,11 @@ fn run_qwen_native_loop(
     }
 
     if let Some((mut tail, sr)) = prev_tail.take() {
-                    let n = tail.len();
-                    for (i, s) in tail.iter_mut().enumerate().take(n) {
-                        let t = i as f32 / n as f32;
-                        *s *= (t * std::f32::consts::FRAC_PI_2).cos();
-                    }
+        let n = tail.len();
+        for (i, s) in tail.iter_mut().enumerate().take(n) {
+            let t = i as f32 / n as f32;
+            *s *= (t * std::f32::consts::FRAC_PI_2).cos();
+        }
         sink.append(SamplesBuffer::new(1, sr, tail));
     }
     sink.sleep_until_end();
