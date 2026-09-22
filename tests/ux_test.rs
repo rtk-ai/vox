@@ -1,6 +1,7 @@
 //! UX tests — error messages, CLI output, edge cases.
 
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
+
 use predicates::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -9,8 +10,7 @@ use predicates::prelude::*;
 
 #[test]
 fn empty_text_shows_helpful_error() {
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .args(["  ", "  "])
         .assert()
         .failure()
@@ -20,8 +20,7 @@ fn empty_text_shows_helpful_error() {
 #[test]
 fn invalid_backend_shows_available_options() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "set", "backend", "nonexistent"])
         .assert()
@@ -32,8 +31,7 @@ fn invalid_backend_shows_available_options() {
 #[test]
 fn invalid_lang_shows_supported_list() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "set", "lang", "zz"])
         .assert()
@@ -44,8 +42,7 @@ fn invalid_lang_shows_supported_list() {
 #[test]
 fn invalid_gender_shows_valid_options() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "set", "gender", "neutral"])
         .assert()
@@ -56,8 +53,7 @@ fn invalid_gender_shows_valid_options() {
 #[test]
 fn invalid_style_shows_valid_options() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "set", "style", "angry"])
         .assert()
@@ -68,8 +64,7 @@ fn invalid_style_shows_valid_options() {
 #[test]
 fn invalid_rate_shows_error() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "set", "rate", "not_a_number"])
         .assert()
@@ -80,8 +75,7 @@ fn invalid_rate_shows_error() {
 #[test]
 fn unknown_preference_key_shows_valid_keys() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "set", "foo", "bar"])
         .assert()
@@ -99,8 +93,7 @@ fn unknown_preference_key_shows_valid_keys() {
 #[test]
 fn stats_on_fresh_db_says_no_usage() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["stats"])
         .assert()
@@ -115,8 +108,7 @@ fn stats_on_fresh_db_says_no_usage() {
 #[test]
 fn config_show_on_fresh_db_shows_defaults() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "show"])
         .assert()
@@ -133,16 +125,14 @@ fn config_set_then_show_reflects_change() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
 
     // Set lang to fr
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "set", "lang", "fr"])
         .assert()
         .success();
 
     // Show should reflect fr
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "show"])
         .assert()
@@ -159,24 +149,21 @@ fn config_reset_clears_preferences() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
 
     // Set something
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "set", "lang", "ja"])
         .assert()
         .success();
 
     // Reset
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "reset"])
         .assert()
         .success();
 
     // Show should not contain ja
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["config", "show"])
         .assert()
@@ -191,8 +178,7 @@ fn config_reset_clears_preferences() {
 #[test]
 fn clone_remove_nonexistent_shows_message() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["clone", "remove", "does_not_exist"])
         .assert()
@@ -203,8 +189,7 @@ fn clone_remove_nonexistent_shows_message() {
 #[test]
 fn clone_list_empty_shows_no_clones() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
         .args(["clone", "list"])
         .assert()
@@ -218,8 +203,7 @@ fn clone_list_empty_shows_no_clones() {
 
 #[test]
 fn help_lists_all_subcommands() {
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .args(["--help"])
         .assert()
         .success()
@@ -235,8 +219,7 @@ fn help_lists_all_subcommands() {
 
 #[test]
 fn version_outputs_semver() {
-    Command::cargo_bin("vox")
-        .unwrap()
+    cargo_bin_cmd!("vox")
         .args(["--version"])
         .assert()
         .success()

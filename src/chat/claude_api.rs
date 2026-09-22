@@ -134,7 +134,10 @@ async fn stream_claude_inner(
         .context("Failed to call Claude API")?;
 
     if !resp.status().is_success() {
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "(failed to read error body)".to_string());
         anyhow::bail!("Claude API error: {body}");
     }
 
@@ -194,9 +197,9 @@ mod tests {
     fn test_sse_parsing() {
         // Simulate SSE content_block_delta
         let data = r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Bonjour"}}"#;
-        let event: SseData = serde_json::from_str(data).unwrap();
+        let event: SseData = serde_json::from_str(data).expect("failed to parse SSE data");
         assert_eq!(event.type_field, "content_block_delta");
-        let delta = event.delta.unwrap();
+        let delta = event.delta.expect("delta field should be present");
         assert_eq!(delta.type_field.as_deref(), Some("text_delta"));
         assert_eq!(delta.text.as_deref(), Some("Bonjour"));
     }
@@ -204,7 +207,7 @@ mod tests {
     #[test]
     fn test_sse_message_stop() {
         let data = r#"{"type":"message_stop"}"#;
-        let event: SseData = serde_json::from_str(data).unwrap();
+        let event: SseData = serde_json::from_str(data).expect("failed to parse SSE data");
         assert_eq!(event.type_field, "message_stop");
         assert!(event.delta.is_none());
     }

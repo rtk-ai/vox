@@ -10,7 +10,6 @@ fn main() {
 #[cfg(target_os = "macos")]
 fn main() -> anyhow::Result<()> {
     use std::io::{self, Write};
-    use std::process::Command;
     use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -76,21 +75,16 @@ fn run_say_loop(
     use std::process::Command;
 
     let mut first = true;
-    loop {
-        match rx.recv() {
-            Ok(Some(sentence)) => {
-                if first {
-                    eprintln!("  [TTS] First say call at {:?}", start.elapsed());
-                    first = false;
-                }
-                let _ = Command::new("/usr/bin/say")
-                    .arg("-v")
-                    .arg("Thomas")
-                    .arg(&sentence)
-                    .status();
-            }
-            Ok(None) | Err(_) => break,
+    while let Ok(Some(sentence)) = rx.recv() {
+        if first {
+            eprintln!("  [TTS] First say call at {:?}", start.elapsed());
+            first = false;
         }
+        let _ = Command::new("/usr/bin/say")
+            .arg("-v")
+            .arg("Thomas")
+            .arg(&sentence)
+            .status();
     }
     Ok(())
 }
@@ -116,64 +110,57 @@ fn run_qwen_native_loop(
     let mut prev_tail: Option<(Vec<f32>, u32)> = None;
     let mut is_first_sentence = true;
 
-    loop {
-        match rx.recv() {
-            Ok(Some(sentence)) => {
-                qwen_native::with_model(None, |model| {
-                    let audio =
-                        model.synthesize_with_voice(&sentence, Speaker::Ryan, lang, None)?;
-                    let sr = audio.sample_rate;
-                    let mut samples = audio.samples;
-                    let overlap = ((sr as usize * CROSSFADE_MS) / 1000).min(samples.len());
+    while let Ok(Some(sentence)) = rx.recv() {
+        qwen_native::with_model(None, |model| {
+            let audio = model.synthesize_with_voice(&sentence, Speaker::Ryan, lang, None)?;
+            let sr = audio.sample_rate;
+            let mut samples = audio.samples;
+            let overlap = ((sr as usize * CROSSFADE_MS) / 1000).min(samples.len());
 
-                    if first {
-                        eprintln!("  [TTS] First audio ready at {:?} (TTFA)", start.elapsed());
-                        first = false;
-                    }
-
-                    // Crossfade with previous sentence's tail.
-                    if let Some((tail, _)) = prev_tail.take() {
-                        let n = overlap.min(tail.len()).min(samples.len());
-                        for i in 0..n {
-                            let t = i as f32 / n as f32;
-                            let fo = (t * std::f32::consts::FRAC_PI_2).cos();
-                            let fi = (t * std::f32::consts::FRAC_PI_2).sin();
-                            samples[i] = tail[i] * fo + samples[i] * fi;
-                        }
-                    } else if is_first_sentence {
-                        let n = overlap.min(samples.len());
-                        for (i, s) in samples[..n].iter_mut().enumerate() {
-                            let t = i as f32 / n as f32;
-                            *s *= (t * std::f32::consts::FRAC_PI_2).sin();
-                        }
-                        is_first_sentence = false;
-                    }
-
-                    // Hold back tail for crossfade with next sentence.
-                    if samples.len() > overlap {
-                        let split_at = samples.len() - overlap;
-                        let tail = samples.split_off(split_at);
-                        sink.append(SamplesBuffer::new(1, sr, samples));
-                        prev_tail = Some((tail, sr));
-                    } else {
-                        prev_tail = Some((samples, sr));
-                    }
-
-                    Ok(())
-                })?;
+            if first {
+                eprintln!("  [TTS] First audio ready at {:?} (TTFA)", start.elapsed());
+                first = false;
             }
-            Ok(None) | Err(_) => {
-                if let Some((mut tail, sr)) = prev_tail.take() {
-                    let n = tail.len();
-                    for i in 0..n {
-                        let t = i as f32 / n as f32;
-                        tail[i] *= (t * std::f32::consts::FRAC_PI_2).cos();
-                    }
-                    sink.append(SamplesBuffer::new(1, sr, tail));
+
+            // Crossfade with previous sentence's tail.
+            if let Some((tail, _)) = prev_tail.take() {
+                let n = overlap.min(tail.len()).min(samples.len());
+                for i in 0..n {
+                    let t = i as f32 / n as f32;
+                    let fo = (t * std::f32::consts::FRAC_PI_2).cos();
+                    let fi = (t * std::f32::consts::FRAC_PI_2).sin();
+                    samples[i] = tail[i] * fo + samples[i] * fi;
                 }
-                break;
+            } else if is_first_sentence {
+                let n = overlap.min(samples.len());
+                for (i, s) in samples[..n].iter_mut().enumerate() {
+                    let t = i as f32 / n as f32;
+                    *s *= (t * std::f32::consts::FRAC_PI_2).sin();
+                }
+                is_first_sentence = false;
             }
+
+            // Hold back tail for crossfade with next sentence.
+            if samples.len() > overlap {
+                let split_at = samples.len() - overlap;
+                let tail = samples.split_off(split_at);
+                sink.append(SamplesBuffer::new(1, sr, samples));
+                prev_tail = Some((tail, sr));
+            } else {
+                prev_tail = Some((samples, sr));
+            }
+
+            Ok(())
+        })?;
+    }
+
+    if let Some((mut tail, sr)) = prev_tail.take() {
+        let n = tail.len();
+        for (i, s) in tail.iter_mut().enumerate().take(n) {
+            let t = i as f32 / n as f32;
+            *s *= (t * std::f32::consts::FRAC_PI_2).cos();
         }
+        sink.append(SamplesBuffer::new(1, sr, tail));
     }
     sink.sleep_until_end();
     Ok(())
