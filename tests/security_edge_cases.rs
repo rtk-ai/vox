@@ -2,7 +2,9 @@
 //! never reach a shell or be interpreted as paths.
 //!
 //! The backend command builders are exercised directly so these tests are
-//! deterministic and do not play audio.
+//! deterministic and do not play audio. The `say` and `qwen` backends only
+//! exist on macOS, so the whole file is gated.
+#![cfg(target_os = "macos")]
 
 use std::ffi::OsStr;
 use std::process::Command;
@@ -59,7 +61,6 @@ fn qwen_backend_passes_text_as_single_argv_without_shell() {
 /// End-to-end: a path-like voice name must not crash the CLI or be treated as a
 /// filesystem path. Uses the `say` backend (no model download); macOS only.
 #[test]
-#[cfg(target_os = "macos")]
 fn path_traversal_in_voice_name_is_handled() {
     use assert_cmd::cargo::cargo_bin_cmd;
     use predicates::prelude::*;
