@@ -5272,10 +5272,15 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
  "clap",
+ "cpal",
  "crossterm",
  "dirs",
  "futures-util",
+ "hf-hub",
  "hound",
  "include_dir",
  "kokoro-tts",
@@ -5291,6 +5296,7 @@ dependencies = [
  "serde_json",
  "sys-locale",
  "tempfile",
+ "tokenizers 0.21.4",
  "tokio",
  "toml",
 ]

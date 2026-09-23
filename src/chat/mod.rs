@@ -2,10 +2,7 @@ pub mod claude_api;
 pub mod sentence;
 pub mod streaming;
 
-use std::io::{self, BufRead};
-use std::process::Command;
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Serialize;
 
 use crate::backend::{self, SpeakOptions};
@@ -58,21 +55,9 @@ pub fn is_exit(text: &str) -> bool {
     EXIT_WORDS.contains(&trimmed)
 }
 
-pub fn record_until_enter(output_path: &str) -> Result<()> {
-    let mut child = Command::new("rec")
-        .arg(output_path)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context(crate::clone::sox_install_hint())?;
-
-    let stdin = io::stdin();
-    let mut line = String::new();
-    stdin.lock().read_line(&mut line)?;
-
-    let _ = child.kill();
-    let _ = child.wait();
-    Ok(())
+/// Record from the microphone until the user presses Enter. Returns 16 kHz mono samples.
+pub fn record_until_enter() -> Result<Vec<f32>> {
+    crate::mic::record(&crate::mic::RecordOptions::until_enter())
 }
 
 pub fn speak_text(text: &str, config: &ChatConfig) -> Result<()> {

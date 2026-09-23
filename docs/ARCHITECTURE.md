@@ -37,7 +37,10 @@ src/
   clone.rs        Voice cloning — validation audio, enregistrement micro
   pack.rs         Sound packs (peon-ping compatible)
   audio.rs        Playback audio via rodio
-  stt.rs          Speech-to-text via mlx-whisper (macOS only)
+  mic.rs          Capture micro via cpal, VAD energie, resampling 16 kHz
+  stt/            Speech-to-text Whisper sur candle (Rust pur, toutes plateformes)
+    mod.rs        Cache modele process-wide, API transcribe / transcribe_samples
+    whisper.rs    Inference (mel, encodeur, decodeur greedy + fallback temperature)
   chat/           Mode conversation vocale (macOS only)
 ```
 
@@ -239,7 +242,7 @@ Serveur JSON-RPC 2.0 sur stdio. Compatible MCP spec `2024-11-05`.
 | `vox_pack_set` | Active un sound pack |
 | `vox_pack_play` | Joue un son d'un pack (category) |
 | `vox_pack_remove` | Supprime un sound pack |
-| `vox_hear` | Enregistre et transcrit (STT, macOS only) |
+| `vox_hear` | Enregistre et transcrit (STT Whisper local, toutes plateformes) |
 
 ## Compilation conditionnelle
 

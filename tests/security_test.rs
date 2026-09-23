@@ -199,32 +199,6 @@ fn clone_name_with_unicode_works() {
 }
 
 // ---------------------------------------------------------------------------
-// STT command does not use shell (no command injection)
-// ---------------------------------------------------------------------------
-
-#[cfg(target_os = "macos")]
-#[test]
-fn stt_command_does_not_invoke_shell() {
-    let cmd = vox::stt::build_transcribe_command("/tmp/test.wav", Some("en"));
-    // Command should be python3, not sh/bash
-    assert_eq!(cmd.get_program(), "python3");
-    let args: Vec<_> = cmd.get_args().collect();
-    // Should use -c with inline script, not shell
-    assert_eq!(args[0], "-c");
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-fn stt_escapes_single_quotes_in_path() {
-    let cmd = vox::stt::build_transcribe_command("/tmp/it's a test.wav", Some("en"));
-    let args: Vec<_> = cmd.get_args().collect();
-    let script = args[1].to_string_lossy();
-    // Should have escaped single quote
-    assert!(script.contains("\\'"));
-    assert!(!script.contains("it's"));
-}
-
-// ---------------------------------------------------------------------------
 // Path traversal in clone audio file paths
 // ---------------------------------------------------------------------------
 

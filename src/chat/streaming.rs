@@ -113,19 +113,15 @@ pub fn run_chat_loop(config: ChatConfig) -> Result<()> {
         eprintln!("Warning: model preload failed: {e}");
     }
 
-    let tmp_dir = std::env::temp_dir();
-    let audio_path = tmp_dir.join("vox_chat_input.wav");
-    let audio_str = audio_path.to_string_lossy().to_string();
-
     loop {
         eprintln!("\n[Appuie sur Enter quand tu as fini de parler]");
         io::stderr().flush()?;
 
-        record_until_enter(&audio_str)?;
+        let samples = record_until_enter()?;
 
         eprint!("Transcription...");
         io::stderr().flush()?;
-        let user_text = stt::transcribe(&audio_str, config.lang.as_deref())?;
+        let user_text = stt::transcribe_samples(&samples, config.lang.as_deref())?;
         eprintln!(" \"{user_text}\"");
 
         if user_text.is_empty() {
@@ -237,7 +233,6 @@ pub fn run_chat_loop(config: ChatConfig) -> Result<()> {
         });
     }
 
-    let _ = std::fs::remove_file(&audio_path);
     Ok(())
 }
 

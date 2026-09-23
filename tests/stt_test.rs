@@ -1,51 +1,45 @@
-#![cfg(target_os = "macos")]
-
-use std::ffi::OsStr;
+//! STT module tests that do not require downloading a model.
 
 use vox::stt;
 
 #[test]
-fn build_transcribe_command_basic() {
-    let cmd = stt::build_transcribe_command("/tmp/audio.wav", None);
-    assert_eq!(cmd.get_program(), "python3");
-    let args: Vec<&OsStr> = cmd.get_args().collect();
-    assert_eq!(args.len(), 2);
-    assert_eq!(args[0], "-c");
-    let script = args[1].to_string_lossy();
-    assert!(script.contains("mlx_whisper"));
-    assert!(script.contains("/tmp/audio.wav"));
-    assert!(script.contains("language='en'")); // default language
+fn default_model_is_multilingual_small() {
+    assert_eq!(stt::DEFAULT_MODEL, "openai/whisper-small");
+    assert_eq!(stt::QUALITY_MODEL, "openai/whisper-large-v3-turbo");
+    assert_eq!(stt::model_id(None), stt::DEFAULT_MODEL);
 }
 
 #[test]
-fn build_transcribe_command_with_language() {
-    let cmd = stt::build_transcribe_command("/tmp/audio.wav", Some("fr"));
-    let args: Vec<&OsStr> = cmd.get_args().collect();
-    let script = args[1].to_string_lossy();
-    assert!(script.contains("language='fr'"));
+fn model_override_wins() {
+    assert_eq!(
+        stt::model_id(Some("openai/whisper-small")),
+        "openai/whisper-small"
+    );
 }
 
 #[test]
-fn build_transcribe_command_no_language_defaults_to_en() {
-    let cmd = stt::build_transcribe_command("/tmp/audio.wav", None);
-    let args: Vec<&OsStr> = cmd.get_args().collect();
-    let script = args[1].to_string_lossy();
-    assert!(script.contains("language='en'"));
+fn language_tokens_follow_whisper_format() {
+    assert_eq!(stt::language_token("fr"), "<|fr|>");
+    assert_eq!(stt::language_token("EN"), "<|en|>");
 }
 
 #[test]
-fn build_transcribe_command_preserves_audio_path() {
-    let cmd = stt::build_transcribe_command("/home/user/recording.wav", None);
-    let args: Vec<&OsStr> = cmd.get_args().collect();
-    let script = args[1].to_string_lossy();
-    assert!(script.contains("/home/user/recording.wav"));
+fn all_vox_languages_are_supported() {
+    for l in [
+        "en", "fr", "es", "de", "it", "pt", "zh", "ja", "ko", "ru", "ar", "nl",
+    ] {
+        assert!(stt::is_supported_language(l), "{l}");
+    }
+    assert!(!stt::is_supported_language("xx"));
 }
 
 #[test]
-fn build_transcribe_command_uses_whisper_model() {
-    let cmd = stt::build_transcribe_command("/tmp/a.wav", Some("ja"));
-    let args: Vec<&OsStr> = cmd.get_args().collect();
-    let script = args[1].to_string_lossy();
-    assert!(script.contains("whisper-large-v3-turbo"));
-    assert!(script.contains("language='ja'"));
+fn unsupported_language_is_rejected_without_model() {
+    let err = stt::transcribe_samples(&vec![0.0f32; 16_000], Some("xx")).unwrap_err();
+    assert!(err.to_string().contains("not supported"));
+}
+
+#[test]
+fn tiny_input_returns_empty_without_model() {
+    assert_eq!(stt::transcribe_samples(&[0.0; 10], None).unwrap(), "");
 }

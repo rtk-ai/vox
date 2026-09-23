@@ -37,21 +37,6 @@ fn test_validate_audio_valid_flac() {
 }
 
 #[test]
-fn test_build_record_command() {
-    let cmd = clone::build_record_command("/tmp/out.wav", 10);
-    assert_eq!(cmd.get_program(), "rec");
-    let args: Vec<_> = cmd.get_args().collect();
-    assert_eq!(args, &["/tmp/out.wav", "trim", "0", "10"]);
-}
-
-#[test]
-fn test_build_record_command_custom_duration() {
-    let cmd = clone::build_record_command("/tmp/out.wav", 30);
-    let args: Vec<_> = cmd.get_args().collect();
-    assert_eq!(args, &["/tmp/out.wav", "trim", "0", "30"]);
-}
-
-#[test]
 fn test_resolve_voice_found() {
     let conn = db::open_in_memory().unwrap();
     db::add_clone(&conn, "patrick", "/p.wav", Some("hello")).unwrap();

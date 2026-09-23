@@ -15,7 +15,7 @@ pub mod db;
 pub mod init;
 pub mod input;
 pub mod mcp;
+pub mod mic;
 pub mod pack;
-#[cfg(target_os = "macos")]
 pub mod stt;
 pub mod tui;
