@@ -12,7 +12,6 @@ use serde_json::{Value, json};
 use crate::backend::{self, SpeakOptions};
 use crate::clone;
 use crate::db;
-#[cfg(target_os = "macos")]
 use crate::mic;
 use crate::pack;
 use crate::stt;
