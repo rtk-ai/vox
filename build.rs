@@ -9,6 +9,7 @@
 
 use std::env;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -22,10 +23,11 @@ fn main() {
         .nth(2)
         .expect("OUT_DIR has unexpected layout");
 
-    let espeak_data = find_espeak_data(build_dir).unwrap_or_else(|| {
+    let espeak_data = wait_for_espeak_data(build_dir).unwrap_or_else(|| {
         panic!(
             "espeak-ng-data not found under {}. \
-             espeak-rs-sys should have built it before this script runs.",
+             espeak-rs-sys should have built it before this script runs \
+             (with -j1 cargo cannot run both build scripts at once: re-run the build).",
             build_dir.display()
         )
     });
@@ -34,6 +36,39 @@ fn main() {
     copy_dir_recursive(&espeak_data, &dst).expect("failed to stage espeak-ng-data");
 
     println!("cargo:rerun-if-changed={}", espeak_data.display());
+}
+
+/// Cargo gives no ordering guarantee between vox's build script and the
+/// espeak-rs-sys one (that crate has no `links` key), so the data directory may
+/// not exist yet when we start. Poll for it: espeak-rs-sys is a dependency of
+/// this crate, so its build script is guaranteed to run during the same cargo
+/// invocation. With a single job slot it cannot run concurrently, so bail out
+/// immediately in that case.
+fn wait_for_espeak_data(build_dir: &Path) -> Option<PathBuf> {
+    const TIMEOUT: Duration = Duration::from_secs(20 * 60);
+    const POLL: Duration = Duration::from_secs(2);
+
+    if let Some(p) = find_espeak_data(build_dir) {
+        return Some(p);
+    }
+    let jobs: usize = env::var("NUM_JOBS")
+        .ok()
+        .and_then(|j| j.parse().ok())
+        .unwrap_or(2);
+    if jobs < 2 {
+        return None;
+    }
+    println!("cargo:warning=espeak-ng-data not built yet, waiting for espeak-rs-sys...");
+    let start = Instant::now();
+    while start.elapsed() < TIMEOUT {
+        std::thread::sleep(POLL);
+        if let Some(p) = find_espeak_data(build_dir) {
+            // Give the producer a moment to finish copying the tree.
+            std::thread::sleep(POLL);
+            return Some(p);
+        }
+    }
+    None
 }
 
 fn find_espeak_data(build_dir: &Path) -> Option<PathBuf> {

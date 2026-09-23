@@ -482,7 +482,6 @@ fn handle_chat(voice: Option<String>, lang: Option<String>) -> Result<()> {
     chat::run_chat_loop(config)
 }
 
-#[cfg(target_os = "macos")]
 fn handle_hear(
     lang: Option<String>,
     timeout: u32,
