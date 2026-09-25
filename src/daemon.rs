@@ -8,7 +8,7 @@
 
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -450,7 +450,10 @@ pub fn handle_stop() -> Result<()> {
     if let Some(pid) = read_pid() {
         #[cfg(unix)]
         {
-            Command::new("kill").arg(pid.to_string()).status().ok();
+            std::process::Command::new("kill")
+                .arg(pid.to_string())
+                .status()
+                .ok();
         }
         remove_pid();
         println!("Daemon killed (pid {pid}).");
