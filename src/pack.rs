@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
@@ -26,6 +26,42 @@ const AVAILABLE_PACKS: &[&str] = &[
     "sc_battlecruiser",
     "ra2_soviet_engineer",
 ];
+
+/// Reject any name that is not a single, ordinary directory component.
+///
+/// Every pack operation builds a path as `packs_dir().join(name)`. `join` with
+/// an absolute path discards the base entirely, and `..` is resolved by the OS,
+/// so an unvalidated name escapes the packs directory completely. `install`
+/// happened to be safe because it checks `AVAILABLE_PACKS` first; `remove`,
+/// `load_manifest`, `play` and `pick_sound` did not, and `remove` calls
+/// `fs::remove_dir_all` — an arbitrary recursive delete.
+pub fn validate_pack_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        anyhow::bail!("Pack name cannot be empty");
+    }
+    if name == "." || name == ".." {
+        anyhow::bail!("Invalid pack name: '{name}'");
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        anyhow::bail!("Invalid pack name '{name}': must not contain a path separator");
+    }
+    // Belt and braces: the component must survive a round trip through Path
+    // as exactly one normal component. This also rejects Windows prefixes
+    // such as `C:` and root components.
+    let mut components = Path::new(name).components();
+    match (components.next(), components.next()) {
+        (Some(std::path::Component::Normal(c)), None) if c == name => Ok(()),
+        _ => anyhow::bail!("Invalid pack name '{name}': must be a single directory name"),
+    }
+}
+
+/// Reject a manifest entry that is not a plain file name.
+///
+/// The sound file names come from a manifest fetched over the network, and are
+/// joined onto the pack's sounds directory before being written.
+fn validate_sound_file(file: &str) -> Result<()> {
+    validate_pack_name(file).with_context(|| format!("Rejected sound file name '{file}'"))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackManifest {
@@ -123,6 +159,7 @@ pub fn install(name: &str) -> Result<()> {
 
     // Download each sound file
     for file in &files {
+        validate_sound_file(file)?;
         let url = format!("{PACKS_REPO}/{name}/sounds/{file}");
         let resp = client
             .get(&url)
@@ -137,6 +174,7 @@ pub fn install(name: &str) -> Result<()> {
             .bytes()
             .with_context(|| format!("Failed to read {file}"))?;
         fs::write(sounds_dir.join(file), &bytes)?;
+        // (name validated above; `file` validated before the request)
     }
 
     Ok(())
@@ -144,6 +182,7 @@ pub fn install(name: &str) -> Result<()> {
 
 /// Remove an installed pack.
 pub fn remove(name: &str) -> Result<bool> {
+    validate_pack_name(name)?;
     let dest = config::packs_dir().join(name);
     if !dest.exists() {
         return Ok(false);
@@ -154,6 +193,7 @@ pub fn remove(name: &str) -> Result<bool> {
 
 /// Load a pack's manifest.
 pub fn load_manifest(name: &str) -> Result<PackManifest> {
+    validate_pack_name(name)?;
     let manifest_path = config::packs_dir().join(name).join("manifest.json");
     if !manifest_path.exists() {
         anyhow::bail!("Pack '{name}' is not installed. Use: vox pack install {name}");
