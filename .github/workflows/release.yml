@@ -25,8 +25,8 @@ jobs:
   build:
     name: Build ${{ matrix.target }}${{ matrix.cuda == true && ' (CUDA)' || '' }}
     runs-on: ${{ matrix.os }}
-    # CUDA matrix entries are best-effort: GH-hosted runners' kernel mismatch
-    # currently breaks nvidia-dkms. Don't block the release on those.
+    # The CUDA build stays best-effort here: a release must still go out if
+    # the CUDA toolkit download has a bad day. CI gates the regression.
     continue-on-error: ${{ matrix.cuda == true }}
     strategy:
       fail-fast: false
@@ -65,12 +65,6 @@ jobs:
             features: ""
             archive: zip
             artifact_suffix: ""
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            features: cuda
-            archive: zip
-            cuda: true
-            artifact_suffix: "-cuda"
 
     steps:
       - name: Checkout
@@ -91,13 +85,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ${{ matrix.deps }}
 
+      # Install only the components candle-kernels needs (nvcc + the libs cudarc
+      # links). The full toolkit pulls cuda-demo-suite / cuda-runtime, whose
+      # dpkg post-install scripts fail on the GitHub runner and take the whole
+      # job down before a single line of Rust is compiled.
       - name: Install CUDA toolkit
         if: matrix.cuda == true
         uses: Jimver/cuda-toolkit@v0.2.22
         with:
           cuda: '12.6.3'
           method: network
+          # Only the components candle-kernels/cudarc actually link. The full
+          # toolkit pulls cuda-demo-suite / cuda-runtime, whose dpkg
+          # post-install fails on the runner. The linker needs the -dev
+          # variants for the .so symlinks, and cublas/curand carry no cuda-
+          # prefix, so they live in non-cuda-sub-packages.
+          sub-packages: '["nvcc", "cudart", "cudart-dev", "nvrtc", "nvrtc-dev"]'
+          non-cuda-sub-packages: '["libcublas", "libcublas-dev", "libcurand", "libcurand-dev"]'
 
+      # nvcc drives the host compiler, and on Windows that is cl.exe, which the
+      # runner does not place on PATH. Without this, candle-kernels fails with
+      # "nvcc fatal : Cannot find compiler 'cl.exe' in PATH".
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
         env:
