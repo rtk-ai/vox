@@ -105,10 +105,13 @@ jobs:
         env:
           CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '89' || '' }}
 
+      # The CUDA jobs verify that the GPU feature still compiles. They cannot
+      # run the result: libcuda.so.1 ships with the NVIDIA driver, not the
+      # toolkit, and the GitHub runners have no GPU — the test binary dies with
+      # "error while loading shared libraries: libcuda.so.1".
       - name: Run tests
+        if: matrix.cuda != true
         run: cargo test ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
-        env:
-          CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '89' || '' }}
 
       - name: Check formatting
         if: matrix.cuda != true
