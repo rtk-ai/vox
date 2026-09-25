@@ -16,6 +16,12 @@ const DEFAULT_MODEL: &str = "Qwen/Qwen3-TTS-12Hz-0.6B-Base";
 
 pub struct QwenNativeBackend;
 
+/// Whether a model is currently resident in this process. Used by
+/// `vox daemon status` to report what is actually warm.
+pub fn is_loaded() -> bool {
+    MODEL.try_lock().map(|g| g.is_some()).unwrap_or(true)
+}
+
 /// Global model instance — loaded once, stays warm for the process lifetime.
 /// Uses Mutex because Qwen3TTS contains RefCell (not Sync).
 static MODEL: Mutex<Option<Qwen3TTS>> = Mutex::new(None);

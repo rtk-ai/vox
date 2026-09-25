@@ -88,6 +88,12 @@ fn ensure_config(voice_cloning: bool) -> Result<PathBuf> {
 /// Tell the user about the one-off model download before it starts.
 ///
 /// hf-hub's progress bar hides itself when stderr is not a terminal, which is
+/// Whether a model is currently resident in this process. Used by
+/// `vox daemon status` to report what is actually warm.
+pub fn is_loaded() -> bool {
+    MODEL.try_lock().map(|g| g.is_some()).unwrap_or(true)
+}
+
 /// exactly the case under the MCP server and Claude Code hooks — the first run
 /// then looked like a multi-minute freeze with no output at all.
 fn announce_first_run() {

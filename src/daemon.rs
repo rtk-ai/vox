@@ -1,15 +1,14 @@
 //! Lazy daemon — keeps heavy TTS models warm in memory.
 //!
-//! `vox daemon start` launches a local HTTP server. Subsequent `vox -b voxtream "text"`
+//! `vox daemon start` launches a local HTTP server. Subsequent `vox "text"`
 //! calls route through the daemon for ~1-2s latency instead of 20-60s cold start.
 //! Auto-shuts down after idle timeout (default 5min).
 //!
-//! For voxtream: launches voxtream-server (FastAPI/WebSocket) as child process,
 //! then proxies speak requests through a Python WebSocket client script.
 
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -20,14 +19,11 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use crate::audio;
-use crate::backend::voxtream::find_voxtream;
 use crate::backend::{self, SpeakOptions};
 use crate::config;
 
 const DEFAULT_PORT: u16 = 19876;
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 300;
-const VOXTREAM_SERVER_PORT: u16 = 7860;
 
 pub fn daemon_port() -> u16 {
     std::env::var("VOX_DAEMON_PORT")
@@ -129,144 +125,10 @@ struct SpeakResponse {
     duration_ms: Option<u64>,
 }
 
-// ── Voxtream server manager ──────────────────────────────────
-
-struct VoxtreamServer {
-    child: Child,
-}
-
-impl VoxtreamServer {
-    fn start() -> Result<Self> {
-        let bin = find_voxtream().context("voxtream not installed")?;
-        // voxtream-server is next to voxtream binary
-        let server_bin = bin.with_file_name("voxtream-server");
-        if !server_bin.exists() {
-            anyhow::bail!("voxtream-server not found at {}", server_bin.display());
-        }
-
-        // voxtream-server needs configs/generator.json relative to CWD
-        let config_dir = config::config_dir().join("voxtream");
-        let configs_subdir = config_dir.join("configs");
-        if !configs_subdir.exists() {
-            std::fs::create_dir_all(&configs_subdir).ok();
-            // Copy config files into configs/ subdirectory
-            for name in ["generator.json", "speaking_rate.json"] {
-                let src = config_dir.join(name);
-                let dst = configs_subdir.join(name);
-                if src.exists() && !dst.exists() {
-                    std::fs::copy(&src, &dst).ok();
-                }
-            }
-        }
-
-        eprintln!("[daemon] Starting voxtream-server on port {VOXTREAM_SERVER_PORT}...");
-        let child = Command::new(&server_bin)
-            .current_dir(&config_dir)
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .with_context(|| {
-                format!("failed to start voxtream-server: {}", server_bin.display())
-            })?;
-
-        // Wait for server to be ready
-        for i in 0..60 {
-            std::thread::sleep(Duration::from_secs(1));
-            if reqwest::blocking::Client::new()
-                .get(format!("http://127.0.0.1:{VOXTREAM_SERVER_PORT}/"))
-                .timeout(Duration::from_millis(500))
-                .send()
-                .is_ok_and(|r| r.status().is_success())
-            {
-                eprintln!("[daemon] voxtream-server ready after {i}s.");
-                return Ok(Self { child });
-            }
-        }
-
-        anyhow::bail!("voxtream-server failed to start within 60s")
-    }
-
-    fn is_alive(&mut self) -> bool {
-        self.child.try_wait().ok().flatten().is_none()
-    }
-
-    /// Speak via WebSocket client (Python script).
-    fn speak(&self, text: &str, prompt_audio: &str, output_wav: &str) -> Result<()> {
-        let script = format!(
-            r#"
-import json, sys, numpy as np, soundfile as sf
-from websockets.sync.client import connect
-ws = connect("ws://127.0.0.1:{port}/voxtream", close_timeout=5)
-try:
-    ws.send(json.dumps({{"event": "init", "prompt_audio_path": "{prompt}", "text": "{text}"}}))
-    sr = 24000
-    frames = []
-    while True:
-        try:
-            msg = ws.recv()
-        except Exception:
-            break
-        if isinstance(msg, bytes):
-            frames.append(np.frombuffer(msg, dtype=np.float32))
-        elif isinstance(msg, str):
-            data = json.loads(msg)
-            if data.get("type") == "config":
-                sr = data.get("sample_rate", 24000)
-            elif data.get("type") in ("eos", "done", "error"):
-                break
-    if frames:
-        sf.write("{output}", np.concatenate(frames), sr)
-finally:
-    try:
-        ws.close()
-    except Exception:
-        pass
-"#,
-            port = VOXTREAM_SERVER_PORT,
-            prompt = prompt_audio.replace('"', r#"\""#),
-            text = text.replace('"', r#"\""#).replace('\n', " "),
-            output = output_wav.replace('"', r#"\""#),
-        );
-
-        let python = find_voxtream()
-            .map(|p| {
-                p.parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .join("python3")
-            })
-            .unwrap_or_else(|| PathBuf::from("python3"));
-
-        let output = Command::new(&python)
-            .arg("-c")
-            .arg(&script)
-            .output()
-            .context("failed to run voxtream WebSocket client")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            anyhow::bail!("voxtream WS client failed: {stderr}\nstdout: {stdout}");
-        }
-
-        Ok(())
-    }
-}
-
-impl Drop for VoxtreamServer {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        eprintln!("[daemon] voxtream-server stopped.");
-    }
-}
-
-// ── Daemon state ─────────────────────────────────────────────
-
 struct DaemonState {
     start_time: Instant,
     last_request: AtomicU64,
     speak_lock: Mutex<()>,
-    voxtream_server: Mutex<Option<VoxtreamServer>>,
 }
 
 impl DaemonState {
@@ -275,7 +137,6 @@ impl DaemonState {
             start_time: Instant::now(),
             last_request: AtomicU64::new(now_epoch_secs()),
             speak_lock: Mutex::new(()),
-            voxtream_server: Mutex::new(None),
         }
     }
 
@@ -291,26 +152,23 @@ impl DaemonState {
         self.start_time.elapsed().as_secs()
     }
 
-    async fn loaded_backends(&self) -> Vec<String> {
+    /// Which models are actually resident in this process.
+    ///
+    /// This used to report only voxtream, so `vox daemon status` said
+    /// "(none loaded yet)" even with pocket or qwen-native warm — the whole
+    /// point of the daemon, reported as if it were not working.
+    fn loaded_backends(&self) -> Vec<String> {
         let mut backends = Vec::new();
-        if self.voxtream_server.lock().await.is_some() {
-            backends.push("voxtream".into());
+        if crate::backend::pocket::is_loaded() {
+            backends.push("pocket".into());
+        }
+        if crate::backend::qwen_native::is_loaded() {
+            backends.push("qwen-native".into());
+        }
+        if crate::stt::is_loaded() {
+            backends.push("whisper (stt)".into());
         }
         backends
-    }
-
-    /// Ensure voxtream-server is running, start if needed.
-    async fn ensure_voxtream_server(&self) -> Result<()> {
-        let mut server = self.voxtream_server.lock().await;
-        if let Some(ref mut s) = *server {
-            if s.is_alive() {
-                return Ok(());
-            }
-            eprintln!("[daemon] voxtream-server died, restarting...");
-        }
-        let s = tokio::task::spawn_blocking(VoxtreamServer::start).await??;
-        *server = Some(s);
-        Ok(())
     }
 }
 
@@ -419,7 +277,7 @@ async fn route(
             let resp = serde_json::json!({
                 "status": "ok",
                 "uptime_secs": state.uptime_secs(),
-                "loaded_backends": state.loaded_backends().await,
+                "loaded_backends": state.loaded_backends(),
                 "pid": std::process::id(),
             });
             ("200 OK", resp.to_string())
@@ -436,103 +294,42 @@ async fn route(
             state.touch();
             let _lock = state.speak_lock.lock().await;
 
-            let is_voxtream = req.backend == "voxtream";
+            // Hand off to the backend; the model stays warm in this process.
+            let opts = SpeakOptions {
+                voice: req.voice.clone(),
+                lang: req.lang.clone(),
+                rate: req.rate,
+                gender: req.gender.clone(),
+                style: req.style.clone(),
+                ref_audio: req.ref_audio.clone(),
+                ref_text: req.ref_text.clone(),
+                model: req.model.clone(),
+                volume: req.volume,
+            };
+            let backend_name = req.backend.clone();
+            let text = req.text.clone();
 
-            if is_voxtream {
-                // Use warm voxtream-server
-                if let Err(e) = state.ensure_voxtream_server().await {
-                    let resp = serde_json::json!({"success": false, "error": format!("voxtream-server start failed: {e:#}")});
-                    return ("500 Internal Server Error", resp.to_string());
+            let result = tokio::task::spawn_blocking(move || {
+                let start = Instant::now();
+                let b = backend::get_backend(&backend_name)?;
+                b.speak(&text, &opts)?;
+                Ok::<_, anyhow::Error>(start.elapsed())
+            })
+            .await;
+
+            match result {
+                Ok(Ok(dur)) => {
+                    let resp =
+                        serde_json::json!({"success": true, "duration_ms": dur.as_millis() as u64});
+                    ("200 OK", resp.to_string())
                 }
-
-                let text = req.text.clone();
-                let ref_audio = req.ref_audio.clone();
-                let volume = req.volume;
-                let state_clone = Arc::clone(state);
-
-                let result = tokio::task::spawn_blocking(move || {
-                    let start = Instant::now();
-
-                    // Get prompt audio
-                    let prompt = ref_audio.unwrap_or_else(|| {
-                        crate::backend::voxtream::default_prompt_audio()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_default()
-                    });
-
-                    let tmp = tempfile::NamedTempFile::new()?;
-                    let wav_path = tmp.path().with_extension("wav");
-                    let wav_str = wav_path.to_string_lossy().to_string();
-
-                    // Use voxtream-server via WS
-                    let server_guard = state_clone.voxtream_server.blocking_lock();
-                    if let Some(ref server) = *server_guard {
-                        server.speak(&text, &prompt, &wav_str)?;
-                    } else {
-                        anyhow::bail!("voxtream-server not running");
-                    }
-                    drop(server_guard);
-
-                    // Play the WAV
-                    audio::apply_wav_gain(&wav_path, volume)?;
-                    audio::play_wav_blocking(&wav_path)?;
-                    let _ = std::fs::remove_file(&wav_path);
-
-                    Ok::<_, anyhow::Error>(start.elapsed())
-                })
-                .await;
-
-                match result {
-                    Ok(Ok(dur)) => {
-                        let resp = serde_json::json!({"success": true, "duration_ms": dur.as_millis() as u64});
-                        ("200 OK", resp.to_string())
-                    }
-                    Ok(Err(e)) => {
-                        let resp = serde_json::json!({"success": false, "error": format!("{e:#}")});
-                        ("500 Internal Server Error", resp.to_string())
-                    }
-                    Err(e) => {
-                        let resp = serde_json::json!({"success": false, "error": format!("task panicked: {e}")});
-                        ("500 Internal Server Error", resp.to_string())
-                    }
+                Ok(Err(e)) => {
+                    let resp = serde_json::json!({"success": false, "error": format!("{e:#}")});
+                    ("500 Internal Server Error", resp.to_string())
                 }
-            } else {
-                // Non-voxtream: direct backend call
-                let opts = SpeakOptions {
-                    voice: req.voice.clone(),
-                    lang: req.lang.clone(),
-                    rate: req.rate,
-                    gender: req.gender.clone(),
-                    style: req.style.clone(),
-                    ref_audio: req.ref_audio.clone(),
-                    ref_text: req.ref_text.clone(),
-                    model: req.model.clone(),
-                    volume: req.volume,
-                };
-                let backend_name = req.backend.clone();
-                let text = req.text.clone();
-
-                let result = tokio::task::spawn_blocking(move || {
-                    let start = Instant::now();
-                    let b = backend::get_backend(&backend_name)?;
-                    b.speak(&text, &opts)?;
-                    Ok::<_, anyhow::Error>(start.elapsed())
-                })
-                .await;
-
-                match result {
-                    Ok(Ok(dur)) => {
-                        let resp = serde_json::json!({"success": true, "duration_ms": dur.as_millis() as u64});
-                        ("200 OK", resp.to_string())
-                    }
-                    Ok(Err(e)) => {
-                        let resp = serde_json::json!({"success": false, "error": format!("{e:#}")});
-                        ("500 Internal Server Error", resp.to_string())
-                    }
-                    Err(e) => {
-                        let resp = serde_json::json!({"success": false, "error": format!("task panicked: {e}")});
-                        ("500 Internal Server Error", resp.to_string())
-                    }
+                Err(e) => {
+                    let resp = serde_json::json!({"success": false, "error": format!("task panicked: {e}")});
+                    ("500 Internal Server Error", resp.to_string())
                 }
             }
         }
@@ -653,7 +450,10 @@ pub fn handle_stop() -> Result<()> {
     if let Some(pid) = read_pid() {
         #[cfg(unix)]
         {
-            Command::new("kill").arg(pid.to_string()).status().ok();
+            std::process::Command::new("kill")
+                .arg(pid.to_string())
+                .status()
+                .ok();
         }
         remove_pid();
         println!("Daemon killed (pid {pid}).");

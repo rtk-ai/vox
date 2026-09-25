@@ -2,15 +2,14 @@
 //! never reach a shell or be interpreted as paths.
 //!
 //! The backend command builders are exercised directly so these tests are
-//! deterministic and do not play audio. The `say` and `qwen` backends only
-//! exist on macOS, so the whole file is gated.
+//! deterministic and do not play audio. `say` is the only remaining backend
+//! that shells out, and it is macOS-only, so the whole file is gated.
 #![cfg(target_os = "macos")]
 
 use std::ffi::OsStr;
 use std::process::Command;
 
 use vox::backend::SpeakOptions;
-use vox::backend::qwen::QwenBackend;
 use vox::backend::say::SayBackend;
 
 const MALICIOUS_TEXT: &str = "; ls -la # $(id) `id` | cat /etc/passwd";
@@ -41,21 +40,6 @@ fn say_backend_voice_is_separate_argv() {
     let pos = args.iter().position(|a| a == "-v").expect("-v flag");
     assert_eq!(args[pos + 1], "../../some/path");
     assert_eq!(args.last().map(String::as_str), Some("hello"));
-}
-
-#[test]
-fn qwen_backend_passes_text_as_single_argv_without_shell() {
-    let malicious = "; import os; os.system('echo pwned') #";
-    let cmd = QwenBackend::build_generate_command(malicious, &SpeakOptions::default());
-    assert_eq!(cmd.get_program(), OsStr::new("python3"));
-    let args = args_of(&cmd);
-    // Text goes through `--text <value>`, never interpolated into a `-c` script.
-    let pos = args
-        .iter()
-        .position(|a| a == "--text")
-        .expect("--text flag");
-    assert_eq!(args[pos + 1], malicious);
-    assert!(!args.iter().any(|a| a == "-c"));
 }
 
 /// End-to-end: a path-like voice name must not crash the CLI or be treated as a
