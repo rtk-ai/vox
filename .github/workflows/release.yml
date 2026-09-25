@@ -109,7 +109,7 @@ jobs:
           # go in non-cuda-sub-packages (libcublas-12-6, ...). On Windows the
           # NVIDIA installer takes plain component names and rejects both the
           # -dev suffixes and the lib* names.
-          sub-packages: ${{ runner.os == 'Windows' && '["nvcc", "cudart", "nvrtc", "cublas", "curand"]' || '["nvcc", "cudart", "cudart-dev", "nvrtc", "nvrtc-dev"]' }}
+          sub-packages: ${{ runner.os == 'Windows' && '["nvcc", "cudart", "nvrtc", "nvrtc_dev", "cublas", "cublas_dev", "curand", "curand_dev"]' || '["nvcc", "cudart", "cudart-dev", "nvrtc", "nvrtc-dev"]' }}
           non-cuda-sub-packages: ${{ runner.os == 'Windows' && '[]' || '["libcublas", "libcublas-dev", "libcurand", "libcurand-dev"]' }}
 
       # nvcc drives the host compiler, and on Windows that is cl.exe, which the
