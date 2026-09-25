@@ -41,18 +41,6 @@ fn test_list_voices_say() {
         .success();
 }
 
-#[cfg(target_os = "macos")]
-#[test]
-fn test_list_voices_qwen() {
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    cargo_bin_cmd!("vox")
-        .env("VOX_DB_PATH", tmp.path())
-        .args(["--backend", "qwen", "--list-voices"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Chelsie"));
-}
-
 #[test]
 fn test_list_voices_qwen_native() {
     let tmp = tempfile::NamedTempFile::new().unwrap();

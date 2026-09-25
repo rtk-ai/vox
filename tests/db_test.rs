@@ -194,7 +194,7 @@ fn test_log_and_get_usage() {
 #[test]
 fn test_log_usage_minimal() {
     let conn = db::open_in_memory().unwrap();
-    db::log_usage(&conn, "qwen", None, None, 10, None).unwrap();
+    db::log_usage(&conn, "piper", None, None, 10, None).unwrap();
     let entries = db::get_usage_stats(&conn).unwrap();
     assert_eq!(entries.len(), 1);
     assert!(entries[0].voice.is_none());
@@ -205,7 +205,7 @@ fn test_log_usage_minimal() {
 fn test_usage_summary() {
     let conn = db::open_in_memory().unwrap();
     db::log_usage(&conn, "say", None, None, 100, None).unwrap();
-    db::log_usage(&conn, "qwen", None, None, 50, None).unwrap();
+    db::log_usage(&conn, "piper", None, None, 50, None).unwrap();
     let (count, total) = db::get_usage_summary(&conn).unwrap();
     assert_eq!(count, 2);
     assert_eq!(total, 150);
@@ -223,8 +223,8 @@ fn test_usage_summary_empty() {
 fn test_usage_stats_ordered_desc() {
     let conn = db::open_in_memory().unwrap();
     db::log_usage(&conn, "say", None, None, 10, None).unwrap();
-    db::log_usage(&conn, "qwen", None, None, 20, None).unwrap();
+    db::log_usage(&conn, "piper", None, None, 20, None).unwrap();
     let entries = db::get_usage_stats(&conn).unwrap();
-    assert_eq!(entries[0].backend, "qwen"); // most recent first
+    assert_eq!(entries[0].backend, "piper"); // most recent first
     assert_eq!(entries[1].backend, "say");
 }

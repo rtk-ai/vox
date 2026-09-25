@@ -206,7 +206,7 @@ fn tool_definitions() -> Value {
                     },
                     "backend": {
                         "type": "string",
-                        "description": "TTS backend: kokoro, say (macOS), qwen (macOS), qwen-native, voxtream (fastest, zero-shot)"
+                        "description": "TTS backend: pocket, piper, qwen-native, say (macOS), kokoro (fastest, zero-shot)"
                     },
                     "style": {
                         "type": "string",
@@ -236,7 +236,7 @@ fn tool_definitions() -> Value {
                 "properties": {
                     "backend": {
                         "type": "string",
-                        "description": "TTS backend: kokoro, say, qwen, qwen-native, voxtream"
+                        "description": "TTS backend: pocket, piper, qwen-native, say (macOS), kokoro"
                     }
                 }
             }
@@ -527,15 +527,8 @@ fn tool_speak(args: &Value) -> ToolResult {
     {
         ref_audio = Some(vc.ref_audio);
         ref_text = vc.ref_text;
-        if effective_backend != "qwen" && effective_backend != "qwen-native" {
-            #[cfg(target_os = "macos")]
-            {
-                effective_backend = "qwen".to_string();
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                effective_backend = "qwen-native".to_string();
-            }
+        if effective_backend != "qwen-native" {
+            effective_backend = "qwen-native".to_string();
         }
         voice = None;
     }

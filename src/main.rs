@@ -21,7 +21,7 @@ struct Cli {
     /// Text to speak (when no subcommand is used)
     text: Vec<String>,
 
-    /// TTS backend (pocket, piper, say, qwen, qwen-native, voxtream)
+    /// TTS backend (pocket, piper, qwen-native, say on macOS)
     #[arg(short = 'b', long, default_value = DEFAULT_BACKEND)]
     backend: String,
 
@@ -268,16 +268,9 @@ fn main() -> Result<()> {
     }
 }
 
-/// The backend to use for voice cloning (auto-detected by platform).
+/// The backend to use for voice cloning. Pure Rust, every platform.
 fn voice_clone_backend() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "qwen"
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        "qwen-native"
-    }
+    "qwen-native"
 }
 
 fn handle_speak(cli: Cli) -> Result<()> {
@@ -312,7 +305,7 @@ fn handle_speak(cli: Cli) -> Result<()> {
         ref_audio = Some(vc.ref_audio);
         ref_text = vc.ref_text;
         // Auto-switch to a clone-capable backend (unless already on one)
-        if !["qwen", "qwen-native", "voxtream", "pocket"].contains(&effective_backend.as_str()) {
+        if !["qwen-native", "pocket"].contains(&effective_backend.as_str()) {
             effective_backend = voice_clone_backend().to_string();
         }
         voice = None; // don't pass clone name as --voice
@@ -347,7 +340,7 @@ fn handle_speak(cli: Cli) -> Result<()> {
     // Try daemon for heavy backends (warm model = fast inference)
     let is_heavy = matches!(
         effective_backend.as_str(),
-        "voxtream" | "qwen" | "qwen-native" | "kokoro" | "pocket"
+        "qwen-native" | "kokoro" | "pocket"
     );
     if is_heavy && daemon::is_running() {
         daemon::speak_via_daemon(&text, &effective_backend, &opts)?;
@@ -958,12 +951,6 @@ fn handle_bench() -> Result<()> {
         .unwrap_or(false)
     {
         candidates.push("qwen-native");
-    }
-    if backend::get_backend("voxtream")
-        .map(|b| b.is_available())
-        .unwrap_or(false)
-    {
-        candidates.push("voxtream");
     }
     #[cfg(feature = "kokoro")]
     if backend::get_backend("kokoro")

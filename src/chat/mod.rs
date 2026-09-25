@@ -63,7 +63,7 @@ pub fn record_until_enter() -> Result<Vec<f32>> {
 pub fn speak_text(text: &str, config: &ChatConfig) -> Result<()> {
     let (backend_name, opts) = if let Some(ref vc) = config.voice_clone {
         (
-            "qwen",
+            "qwen-native",
             SpeakOptions {
                 ref_audio: Some(vc.ref_audio.clone()),
                 ref_text: vc.ref_text.clone(),
@@ -73,7 +73,7 @@ pub fn speak_text(text: &str, config: &ChatConfig) -> Result<()> {
         )
     } else {
         (
-            "qwen",
+            "qwen-native",
             SpeakOptions {
                 lang: config.lang.clone(),
                 ..Default::default()

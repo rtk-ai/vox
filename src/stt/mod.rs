@@ -45,6 +45,11 @@ pub fn is_supported_language(lang: &str) -> bool {
         .iter()
         .any(|(code, _)| *code == lang.trim().to_lowercase())
 }
+/// Whether a model is currently resident in this process. Used by
+/// `vox daemon status` to report what is actually warm.
+pub fn is_loaded() -> bool {
+    MODEL.try_lock().map(|g| g.is_some()).unwrap_or(true)
+}
 
 /// Run `f` against the cached model, loading it first if needed.
 pub fn with_model<F, T>(override_id: Option<&str>, f: F) -> Result<T>

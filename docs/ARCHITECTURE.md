@@ -27,7 +27,6 @@ src/
   backend/
     mod.rs        Trait TtsBackend + dispatch get_backend()
     say.rs        Backend macOS natif (NSSSpeechSynthesizer via /usr/bin/say)
-    qwen.rs       Backend MLX-Audio Python (Apple Silicon, macOS only)
     qwen_native.rs Backend candle/Rust (Qwen3-TTS, cross-platform)
     kokoro.rs     Backend Kokoro-TTS (pure Rust, cross-platform)
   config.rs       Chemins config, constantes, enums (Gender, IntonationStyle)
@@ -97,7 +96,6 @@ Quand un utilisateur demande `-v patrick` (ou `voice: "patrick"` via MCP), le sy
 1. Cherche un clone nomme `patrick` dans la table `voice_clones` via `clone::resolve_voice()`
 2. Si trouve : extrait `ref_audio` et `ref_text` du clone
 3. Verifie le backend courant — si c'est `say` ou `kokoro` (qui ne supportent pas le cloning), **bascule automatiquement** :
-   - **macOS** : vers `qwen` (MLX-Audio Python)
    - **Linux / Windows** : vers `qwen-native` (Rust pur)
 4. Met `voice = None` (ne pas passer le nom du clone comme voix au backend)
 5. Passe `ref_audio` + `ref_text` dans `SpeakOptions`

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  No Python, no API key, no cloud. Seven TTS backends, local Whisper speech-to-text,
+  No Python, no API key, no cloud. Five TTS backends, local Whisper speech-to-text,
   and an MCP server that plugs into 14 AI tools.
 </p>
 
@@ -39,7 +39,7 @@
          |                                   |
   +---+---+---+------+-------+------+    Whisper
   |   |   |   |      |       |      |   (Rust/candle)
- say piper pocket qwen-native kokoro voxtream qwen   99 languages
+ say piper pocket qwen-native kokoro        99 languages
       |                                          CPU / Metal / CUDA
       |                                              |
       +----------------- rodio ----------------------+
@@ -55,8 +55,6 @@
 | `pocket` | Candle (Rust, 100M) | Yes* | **~2s** | No (CPU-first) | All |
 | `qwen-native` | Candle (Rust) | Yes | **~3s** | Metal/CUDA | All |
 | `kokoro` | ONNX (Rust, opt-in) | No | **<1s** | No | macOS only |
-| `voxtream` | PyTorch 0.5B | Yes | **~8s** | CUDA/MPS | All |
-| `qwen` | MLX-Audio (Python) | Yes | **~2s** | Apple Neural | macOS |
 
 > \* `pocket` ships 8 predefined voices with zero setup (public weights). Voice cloning
 > from a reference WAV needs `HF_TOKEN` and the gated
@@ -75,20 +73,17 @@ All times measured end-to-end (model loading + inference + audio playback). Cold
 | **`piper`** | **<1s** | <1s | No | Good |
 | **`pocket`** (Kyutai, 100M) *default* | **7–14s** cold¹ | same (CPU-only model) | Yes | Very good (EN only) — generation faster than real-time |
 | **`kokoro`** | **<1s** | macOS only | No | Fair (EN only) |
-| **`voxtream`** (VoXtream2, 0.5B) | **68s** / 40s warm | **23s** / **19s** warm | Yes (zero-shot) | Excellent |
 | **`qwen-native`** (Qwen3-TTS, 0.6B) | **11m33s** / 3s warm | **48s** (CPU) | Yes | Excellent |
-| **`qwen`** (MLX-Audio) | ~15s / 2s warm | macOS only | Yes | Excellent |
 
 **With daemon** (`vox daemon start` — keeps model server warm):
 
 | Backend | M2 Pro (CPU) | Notes |
 |---------|-------------:|-------|
-| **`voxtream`** | **32s** | Inference CPU-bound (~25s). On CUDA: paper reports 74ms first-packet |
 | **`qwen-native`** | **~3s** | Model stays in RAM via global Mutex |
 
 > ¹ `pocket` end-to-end cold on an i7-1065G7 laptop CPU: model load + generation + full playback of 5–9s of audio. Generation alone runs faster than real-time. `pocket` is CPU-only by design, so a GPU does not change the figure. First run also downloads ~226 MB once.
 > All CUDA benchmarks measured on RTX 4070 Ti SUPER (16GB).
-> For lowest latency: `say` (macOS) or `piper` (all platforms). For best quality + cloning: `voxtream` on CUDA with daemon.
+> For lowest latency: `say` (macOS) or `piper` (all platforms). For best quality + cloning: `qwen-native` with the daemon.
 
 ## Install
 
@@ -140,18 +135,6 @@ Linux requires `sudo apt install libasound2-dev`.
 | All (English or no `-l`) | `pocket` | Public weights auto-download on first use (~226 MB) |
 | All (other languages) | `piper` | The pocket checkpoint is English-only; piper has per-language voices |
 
-### VoXtream backend (optional)
-
-```bash
-brew install espeak-ng                              # macOS (or apt install espeak-ng on Linux)
-uv venv ~/.local/venvs/voxtream --python 3.11
-uv pip install --python ~/.local/venvs/voxtream/bin/python "voxtream>=0.2"
-# Copy config files
-git clone --depth 1 https://github.com/herimor/voxtream.git /tmp/voxtream-repo
-mkdir -p "$(vox config show 2>/dev/null | grep dir | awk '{print $2}' || echo ~/.config/vox)/voxtream"
-cp /tmp/voxtream-repo/configs/*.json "$(vox config show 2>/dev/null | grep dir | awk '{print $2}' || echo ~/.config/vox)/voxtream/"
-```
-
 ## Quick start
 
 ```bash
@@ -178,7 +161,6 @@ vox setup
 │> say      ││> Samantha  ││> en  ││> (default)││  0.5   ││ Backend: say │
 │  piper    ││  Thomas    ││  fr  ││  calm     ││> 1.0   ││ Voice: ...   │
 │  qwen-nat ││  Amelie    ││  es  ││  warm     ││  1.5   ││ Lang:  en    │
-│  voxtream ││           ││  de  ││  cheerful ││  2.0   ││ Volume: 1.0x │
 │  qwen     ││           ││  ja  ││          ││  3.0   ││ [T]est [S]ave│
 └───────────┘└────────────┘└──────┘└──────────┘└────────┘└──────────────┘
 ```
@@ -229,13 +211,13 @@ vox clone list
 vox clone remove patrick
 ```
 
-Works with `qwen`, `qwen-native`, and `voxtream` backends. VoXtream2 uses zero-shot cloning (3-10s audio prompt, no training needed).
+Works with the `qwen-native` and `pocket` backends, both pure Rust. A 3-second reference clip is enough.
 
 ## Preferences
 
 ```bash
 vox config show
-vox config set backend voxtream
+vox config set backend qwen-native
 vox config set lang fr
 vox config set voice Chelsie
 vox config set gender feminine
@@ -288,7 +270,6 @@ All state is stored locally — no data sent to external servers (except `vox ch
   vox.db                 # SQLite: preferences, voice clones, usage logs
   clones/                # Audio files for voice clones
   packs/                 # Installed sound packs
-  voxtream/              # VoXtream2 config files
 ```
 
 | Env var | Description |

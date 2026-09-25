@@ -58,7 +58,7 @@ fn stats_query_fast_after_bulk_data() {
         let backend = match i % 4 {
             0 => "say",
             1 => "kokoro",
-            2 => "qwen",
+            2 => "piper",
             _ => "qwen-native",
         };
         let lang = match i % 5 {

@@ -54,14 +54,12 @@ impl App {
             "say          \u{2605}\u{2605}\u{2605} quality  \u{26a1} 3s",
             "piper        \u{2605}\u{2605}  quality  \u{26a1} <1s  [Rust]",
             "qwen-native  \u{2605}\u{2605}\u{2605}\u{2605} quality  \u{26a1} 12s  [Rust+Metal]",
-            "voxtream     \u{2605}\u{2605}\u{2605}\u{2605}\u{2605} quality  \u{26a1} 170ms [CUDA]",
             "qwen         \u{2605}\u{2605}\u{2605}\u{2605} quality  \u{26a1} 2s   [Python+MLX]",
         ];
         #[cfg(not(target_os = "macos"))]
         let backends = vec![
             "piper        \u{2605}\u{2605}  quality  \u{26a1} <1s  [Rust]",
             "qwen-native  \u{2605}\u{2605}\u{2605}\u{2605} quality  \u{26a1} 3s   [Rust+CUDA]",
-            "voxtream     \u{2605}\u{2605}\u{2605}\u{2605}\u{2605} quality  \u{26a1} 170ms [CUDA]",
         ];
 
         let current_backend = prefs.backend.as_deref().unwrap_or(config::DEFAULT_BACKEND);

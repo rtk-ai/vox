@@ -1,18 +1,15 @@
 //! TTS backend abstraction layer.
 //!
 //! Each backend implements `TtsBackend` and is selected at runtime via `get_backend()`.
-//! Platform-gated: `say` and `qwen` are macOS-only; `kokoro`, `qwen-native`, and `voxtream` are cross-platform.
+//! Platform-gated: `say` is macOS-only; every other backend is cross-platform.
 
 #[cfg(feature = "kokoro")]
 pub mod kokoro;
 pub mod piper;
 pub mod pocket;
-#[cfg(target_os = "macos")]
-pub mod qwen;
 pub mod qwen_native;
 #[cfg(target_os = "macos")]
 pub mod say;
-pub mod voxtream;
 
 use anyhow::Result;
 
@@ -56,14 +53,11 @@ pub trait TtsBackend {
 /// for backend validation (used by db preference setter, TUI, etc.).
 pub fn supported_backends() -> Vec<&'static str> {
     #[allow(unused_mut)]
-    let mut v: Vec<&'static str> = vec!["piper", "pocket", "qwen-native", "voxtream"];
+    let mut v: Vec<&'static str> = vec!["piper", "pocket", "qwen-native"];
     #[cfg(feature = "kokoro")]
     v.push("kokoro");
     #[cfg(target_os = "macos")]
-    {
-        v.push("say");
-        v.push("qwen");
-    }
+    v.push("say");
     v
 }
 
@@ -73,14 +67,11 @@ pub fn get_backend(name: &str) -> Result<Box<dyn TtsBackend>> {
         "kokoro" => Ok(Box::new(kokoro::KokoroBackend)),
         #[cfg(target_os = "macos")]
         "say" => Ok(Box::new(say::SayBackend)),
-        #[cfg(target_os = "macos")]
-        "qwen" => Ok(Box::new(qwen::QwenBackend)),
         "qwen-native" => Ok(Box::new(qwen_native::QwenNativeBackend)),
-        "voxtream" => Ok(Box::new(voxtream::VoxtreamBackend)),
         "piper" => Ok(Box::new(piper::PiperBackend)),
         "pocket" => Ok(Box::new(pocket::PocketBackend)),
         #[cfg(not(target_os = "macos"))]
-        "say" | "qwen" => {
+        "say" => {
             anyhow::bail!("Backend '{name}' is only available on macOS. Use 'qwen-native' instead.")
         }
         _ => anyhow::bail!("Unknown backend: {name}"),
