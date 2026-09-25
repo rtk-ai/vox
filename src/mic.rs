@@ -16,6 +16,13 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 /// Sample rate of the audio returned by [`record`].
 pub const TARGET_RATE: u32 = 16_000;
 
+/// Widest box-filter window used when downsampling. Anti-aliasing gains
+/// nothing beyond this, and an unbounded window is quadratic on a hostile rate.
+pub const MAX_FILTER_WINDOW: usize = 64;
+
+/// Highest input sample rate accepted from a file header.
+pub const MAX_SAMPLE_RATE: u32 = 768_000;
+
 /// Frame size used by the VAD, in milliseconds.
 pub const VAD_FRAME_MS: usize = 50;
 
@@ -72,10 +79,13 @@ pub fn adaptive_threshold(base: f32, first_frames: &[f32]) -> f32 {
 pub fn level_threshold(base: f32, peak: f32, noise_floor: f32) -> f32 {
     let from_peak = peak * PEAK_FRACTION;
     let from_noise = noise_floor * NOISE_FLOOR_FACTOR;
-    // Take the more demanding of the two, but never exceed the absolute
-    // threshold: a loud, clean signal must not raise the bar above `base`.
-    let t = from_peak.max(from_noise).min(base);
-    t.clamp(MIN_VAD_THRESHOLD, MAX_VAD_THRESHOLD)
+    // Never raise the bar above `base`: a loud, clean signal must keep the
+    // configured threshold. `max(MIN)` keeps the upper bound above the lower
+    // one even when the caller passes a `base` below MIN_VAD_THRESHOLD —
+    // `clamp` panics if its bounds cross.
+    let upper = base.clamp(MIN_VAD_THRESHOLD, MAX_VAD_THRESHOLD);
+    // Take the more demanding of the two estimates, then bound it.
+    from_peak.max(from_noise).clamp(MIN_VAD_THRESHOLD, upper)
 }
 
 /// Normalise quiet audio so Whisper sees a healthy level. Returns the gain.
@@ -182,13 +192,19 @@ pub fn downmix(interleaved: &[f32], channels: usize) -> Vec<f32> {
 /// Resample mono audio with a box low-pass followed by linear interpolation.
 /// Good enough for speech recognition; not meant for music.
 pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
-    if from_rate == to_rate || samples.is_empty() {
+    // A zero rate makes `ratio` zero and `out_len` infinite, which saturates to
+    // usize::MAX and aborts the process on the allocation. A WAV header can
+    // declare rate 0 and hound accepts it, so this is reachable from any file
+    // handed to `vox hear -f` or the vox_hear MCP tool.
+    if from_rate == 0 || to_rate == 0 || from_rate == to_rate || samples.is_empty() {
         return samples.to_vec();
     }
     let ratio = from_rate as f64 / to_rate as f64;
     // Anti-alias when downsampling: average over `ratio` input samples.
     let filtered: Vec<f32> = if ratio > 1.0 {
-        let win = ratio.ceil() as usize;
+        // Bound the window: a crafted header (rate 2^31 against 16 kHz) would
+        // otherwise make the box filter quadratic over the whole buffer.
+        let win = (ratio.ceil() as usize).min(MAX_FILTER_WINDOW);
         let half = win / 2;
         (0..samples.len())
             .map(|i| {
@@ -278,6 +294,13 @@ pub fn read_wav_16k(path: &Path) -> Result<Vec<f32>> {
                 .collect::<Result<Vec<_>, _>>()?
         }
     };
+    if spec.sample_rate == 0 || spec.sample_rate > MAX_SAMPLE_RATE {
+        anyhow::bail!(
+            "{}: unusable sample rate {} Hz in the WAV header",
+            path.display(),
+            spec.sample_rate
+        );
+    }
     let mono = downmix(&samples, spec.channels as usize);
     Ok(resample(&mono, spec.sample_rate, TARGET_RATE))
 }
@@ -414,7 +437,7 @@ pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
             let (start, stop) = speech_bounds(&frame_rms, threshold, silence_frames);
             let peak = frame_rms.iter().fold(0.0f32, |m, &v| m.max(v));
             let noise_floor = frame_rms.iter().take(NOISE_FLOOR_FRAMES).sum::<f32>()
-                / frame_rms.len().min(NOISE_FLOOR_FRAMES).max(1) as f32;
+                / frame_rms.len().clamp(1, NOISE_FLOOR_FRAMES) as f32;
             if !has_speech(peak, noise_floor) {
                 if debug {
                     eprintln!(
@@ -493,6 +516,49 @@ mod tests {
     }
 
     #[test]
+    fn resample_survives_a_zero_rate() {
+        // Reachable from a crafted WAV header: without the guard this computed
+        // out_len = usize::MAX and aborted the process.
+        let input = vec![0.1, 0.2, 0.3];
+        assert_eq!(resample(&input, 0, 16_000), input);
+        assert_eq!(resample(&input, 16_000, 0), input);
+        assert!(resample(&[], 0, 0).is_empty());
+    }
+
+    #[test]
+    fn resample_window_stays_bounded_on_an_absurd_rate() {
+        // A 2^31 Hz header must not make the filter quadratic.
+        let input: Vec<f32> = (0..4000).map(|i| (i as f32 * 0.01).sin()).collect();
+        let out = resample(&input, 2_000_000_000, 16_000);
+        assert!(out.len() < input.len());
+        assert!(out.iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn read_wav_rejects_an_impossible_sample_rate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.wav");
+        // hound will not write rate 0, so craft the header by hand.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&36u32.to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // sample rate 0
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // byte rate 0
+        bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&16u16.to_le_bytes()); // bits
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&0i16.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        // Either hound rejects it or our guard does — neither may abort.
+        let _ = read_wav_16k(&path);
+    }
+
+    #[test]
     fn resample_identity_when_rates_match() {
         let input = vec![0.1, 0.2, 0.3];
         assert_eq!(resample(&input, 16_000, 16_000), input);
@@ -534,6 +600,16 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);
         assert!(max_err < 1e-3, "max_err={max_err}");
+    }
+
+    #[test]
+    fn level_threshold_never_panics_on_a_tiny_base() {
+        // `clamp` panics when its bounds cross; a base below MIN must not do that.
+        let t = level_threshold(0.0001, 0.3, 0.001);
+        assert!(t.is_finite());
+        assert!(t >= MIN_VAD_THRESHOLD);
+        // And the degenerate all-zero case.
+        assert!(level_threshold(0.0, 0.0, 0.0).is_finite());
     }
 
     #[test]
