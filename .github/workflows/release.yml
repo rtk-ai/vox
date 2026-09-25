@@ -99,7 +99,11 @@ jobs:
         if: matrix.cuda == true
         uses: Jimver/cuda-toolkit@v0.2.22
         with:
-          cuda: '12.6.3'
+          # Linux is green on 12.6. Windows needs a newer CUDA: 12.6 rejects the
+          # runner's Visual Studio 18 outright ("unsupported Microsoft Visual
+          # Studio version" from crt/host_config.h). cudarc 0.17 supports up
+          # to CUDA 13.0.
+          cuda: ${{ runner.os == 'Windows' && '13.0.0' || '12.6.3' }}
           method: network
           # Component names differ by platform. On Linux these are apt packages
           # (cuda-nvcc-12-6, ...), and the linker needs the -dev variants for
@@ -113,14 +117,13 @@ jobs:
       # nvcc drives the host compiler, and on Windows that is cl.exe, which the
       # runner does not place on PATH. Without this, candle-kernels fails with
       # "nvcc fatal : Cannot find compiler 'cl.exe' in PATH".
-      # CUDA 12.6 refuses any MSVC newer than VS 2022 17.10 ("unsupported
-      # Microsoft Visual Studio version" from crt/host_config.h), and the
-      # runner image now ships a newer one. Pin a toolset nvcc accepts.
+      # nvcc drives the host compiler, and on Windows that is cl.exe, which the
+      # runner does not place on PATH. Do not pin a toolset here: the image
+      # ships Visual Studio 18, which carries no 14.3x toolset, and asking for
+      # one fails with "Could not setup Developer Command Prompt".
       - name: Set up MSVC environment (Windows CUDA)
         if: runner.os == 'Windows' && matrix.cuda == true
         uses: ilammy/msvc-dev-cmd@v1
-        with:
-          toolset: '14.39'
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
