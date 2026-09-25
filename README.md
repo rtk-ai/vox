@@ -244,12 +244,31 @@ vox pack play greeting             # Play a sound
 vox pack list                      # List available packs
 ```
 
+## Speech-to-text (all platforms)
+
+Local Whisper on candle (pure Rust, 99 languages). The model is downloaded from
+Hugging Face on first use and kept warm by the daemon / MCP server.
+
+```bash
+vox hear                                   # Listen, auto-detect language, print text
+vox hear -l fr -t 60 -s 3.0                # French, max 60s, stop after 3s of silence
+vox hear -m openai/whisper-large-v3-turbo  # Best quality (GPU + 16 GB RAM recommended)
+vox hear -f recording.wav                  # Transcribe a file instead of the mic
+```
+
+| Env var | Description |
+|---------|-------------|
+| `VOX_STT_MODEL` | Whisper repo (default `openai/whisper-small`, ~1 GB RAM; `openai/whisper-large-v3-turbo` ~3.5 GB) |
+| `VOX_VAD_THRESHOLD` | Minimum RMS speech threshold, 0-1 (default 0.0125; adapts to ambient noise) |
+| `VOX_VAD_DEBUG` | Set to `1` to print RMS levels and the chosen threshold |
+
+No external tools needed: microphone capture uses cpal, so `sox` is no longer required.
+
 ## Voice conversation (macOS)
 
 ```bash
 export ANTHROPIC_API_KEY=sk-...
 vox chat -l fr                     # Talk with Claude
-vox hear -l fr                     # Speech-to-text only
 ```
 
 ## Data

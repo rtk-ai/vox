@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use crate::backend::{self, SpeakOptions};
 use crate::clone;
 use crate::db;
+use crate::mic;
 use crate::pack;
-#[cfg(target_os = "macos")]
 use crate::stt;
 
 const SERVER_NAME: &str = "vox";
@@ -376,13 +376,13 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "vox_hear",
-            "description": "Record audio from the microphone and transcribe it to text (speech-to-text). Recording starts when voice is detected and stops automatically after silence. Use this with vox_speak to create a voice conversation loop — Claude Code is the brain, no API key needed.",
+            "description": "Record audio from the microphone and transcribe it to text (speech-to-text, local Whisper, 99 languages, all platforms). Recording starts when voice is detected and stops automatically after silence. Use this with vox_speak to create a voice conversation loop — Claude Code is the brain, no API key needed.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "lang": {
                         "type": "string",
-                        "description": "Language code for transcription: en, fr, es, de, etc. (default: fr)"
+                        "description": "Language code for transcription: en, fr, es, de, ja, zh, etc. (default: auto-detect)"
                     },
                     "timeout": {
                         "type": "integer",
@@ -391,6 +391,14 @@ fn tool_definitions() -> Value {
                     "silence": {
                         "type": "number",
                         "description": "Seconds of silence before stopping (default: 2.0)"
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Whisper model repo on Hugging Face (default: openai/whisper-small or VOX_STT_MODEL; openai/whisper-large-v3-turbo for best quality on GPU)"
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "Transcribe this WAV file instead of recording from the microphone"
                     }
                 }
             }
@@ -898,88 +906,31 @@ fn tool_pack_remove(args: &Value) -> ToolResult {
 // ---------------------------------------------------------------------------
 
 fn tool_hear(args: &Value) -> ToolResult {
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = args;
-        tool_err(
-            "vox_hear requires macOS (mlx-audio STT). Linux/Windows support coming soon.".into(),
-        )
+    let lang = args
+        .get("lang")
+        .and_then(|v| v.as_str())
+        .filter(|l| !l.trim().is_empty());
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30) as f64;
+    let silence_secs = args.get("silence").and_then(|v| v.as_f64()).unwrap_or(2.0);
+    let model = args.get("model").and_then(|v| v.as_str());
+    let file = args.get("file").and_then(|v| v.as_str());
+
+    let recorded = match file {
+        Some(path) => mic::read_wav_16k(std::path::Path::new(path)),
+        None => mic::record(&mic::RecordOptions::until_silence(silence_secs, timeout)),
+    };
+    let samples = match recorded {
+        Ok(s) => s,
+        Err(e) => return tool_err(format!("Failed to get audio: {e}")),
+    };
+    if samples.len() < mic::TARGET_RATE as usize / 4 {
+        return tool_ok("(silence — no speech detected)".into());
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        let lang = args.get("lang").and_then(|v| v.as_str()).unwrap_or("fr");
-        let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
-        let silence_secs = args.get("silence").and_then(|v| v.as_f64()).unwrap_or(2.0);
-
-        let tmp_dir = std::env::temp_dir();
-        let audio_path = tmp_dir.join("vox_hear_input.wav");
-        let audio_str = audio_path.to_string_lossy().to_string();
-
-        // Record with silence detection using sox `rec`.
-        // silence 1 0.1 1% = skip leading silence (start on voice)
-        // 1 <silence_secs> 1% = stop after N seconds of silence
-        // trim 0 <timeout> = safety max duration
-        let status = std::process::Command::new("rec")
-            .arg(&audio_str)
-            .arg("rate")
-            .arg("16k")
-            .arg("silence")
-            .arg("1")
-            .arg("0.1")
-            .arg("1%")
-            .arg("1")
-            .arg(format!("{silence_secs}"))
-            .arg("1%")
-            .arg("trim")
-            .arg("0")
-            .arg(timeout.to_string())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-
-        let status = match status {
-            Ok(s) => s,
-            Err(e) => {
-                return tool_err(format!(
-                    "Failed to record audio: {e}. {}",
-                    clone::sox_install_hint()
-                ));
-            }
-        };
-
-        if !status.success() {
-            return tool_err("Recording failed (sox exited with error)".into());
-        }
-
-        // Check that the file exists and has content
-        match std::fs::metadata(&audio_path) {
-            Ok(m) if m.len() < 1000 => {
-                let _ = std::fs::remove_file(&audio_path);
-                return tool_ok("(silence — no speech detected)".into());
-            }
-            Err(_) => {
-                return tool_err("Recording file not found".into());
-            }
-            _ => {}
-        }
-
-        // Transcribe
-        let text = match stt::transcribe(&audio_str, Some(lang)) {
-            Ok(t) => t,
-            Err(e) => {
-                let _ = std::fs::remove_file(&audio_path);
-                return tool_err(format!("Transcription failed: {e}"));
-            }
-        };
-
-        let _ = std::fs::remove_file(&audio_path);
-
-        if text.is_empty() {
-            tool_ok("(no speech detected)".into())
-        } else {
-            tool_ok(text)
-        }
+    match stt::transcribe_samples_with(&samples, lang, model) {
+        Ok(t) if t.is_empty() => tool_ok("(no speech detected)".into()),
+        Ok(t) => tool_ok(t),
+        Err(e) => tool_err(format!("Transcription failed: {e}")),
     }
 }
 

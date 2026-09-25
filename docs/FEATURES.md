@@ -39,7 +39,7 @@ Cloner une voix a partir d'un fichier audio de reference.
 # Ajouter un clone depuis un fichier
 vox clone add patrick --audio ~/voice.wav --text "Transcription du fichier"
 
-# Enregistrer directement depuis le micro (necessite sox)
+# Enregistrer directement depuis le micro (capture cpal, aucun outil externe)
 vox clone record myvoice --duration 10 --text "Ce que je dis pendant l'enregistrement"
 
 # Utiliser un clone
@@ -208,24 +208,28 @@ Le serveur est normalement lance automatiquement par l'outil IA. Il n'est pas ne
 | `vox_pack_set` | Active un sound pack | **`name`** (requis, string) : nom du pack installe. |
 | `vox_pack_play` | Joue un son d'un pack | `category` (string, defaut: "greeting") : greeting/acknowledge/complete/error/permission/resource_limit/annoyed. `pack` (string) : nom du pack (utilise le pack actif si omis). |
 | `vox_pack_remove` | Supprime un sound pack | **`name`** (requis, string) : nom du pack. Si le pack supprime etait actif, le pack actif est remis a vide. |
-| `vox_hear` | Enregistre et transcrit (STT) | `lang` (string, defaut: "fr") : code langue. `timeout` (integer, defaut: 30) : duree max en secondes. `silence` (number, defaut: 2.0) : secondes de silence avant arret. macOS uniquement. |
+| `vox_hear` | Enregistre et transcrit (STT) | `lang` (string, defaut: auto-detection) : code langue Whisper. `timeout` (integer, defaut: 30) : duree max en secondes. `silence` (number, defaut: 2.0) : secondes de silence avant arret. `model` (string) : repo Whisper (defaut `openai/whisper-small`). `file` (string) : fichier WAV a transcrire au lieu du micro. Toutes plateformes. |
 
 Les parametres en **gras** sont requis. Le serveur renvoie `isError: true` si un parametre requis est manquant ou invalide.
 
-## Speech-to-Text (macOS)
+## Speech-to-Text (toutes plateformes)
 
-Transcription locale via mlx-whisper.
+Transcription locale via Whisper sur candle (Rust pur, 99 langues, Metal/CUDA si compile avec la feature).
+Le modele est telecharge depuis Hugging Face au premier usage.
 
 ```bash
 # CLI
-vox hear -l fr                     # Ecoute + transcription en francais
-vox hear -l en -t 60 -s 3.0       # Timeout 60s, silence 3s
+vox hear                                   # Ecoute, detecte la langue, transcrit
+vox hear -l fr -t 60 -s 3.0                # Francais force, timeout 60s, silence 3s
+vox hear -m openai/whisper-large-v3-turbo  # Meilleure qualite (GPU + 16 Go RAM conseilles)
+vox hear -f enregistrement.wav             # Transcrire un fichier au lieu du micro
 
 # Via MCP
 vox_hear                           # Utilise par l'assistant IA
 ```
 
-Prerequis : `sox` (pour l'enregistrement micro) et `mlx-audio` (pour la transcription).
+Variables : `VOX_STT_MODEL` (repo Whisper, defaut `openai/whisper-small` ~1 Go RAM), `VOX_VAD_THRESHOLD` (seuil RMS minimal du detecteur de silence, 0-1, defaut 0.0125 ; le seuil effectif s'adapte au bruit ambiant mesure sur les 300 premieres ms), `VOX_VAD_DEBUG=1` (affiche les niveaux RMS et le seuil retenu).
+Aucun prerequis externe : la capture micro utilise cpal.
 
 ## Mode conversation (macOS)
 

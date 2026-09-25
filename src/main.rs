@@ -111,12 +111,17 @@ enum Commands {
         #[arg(short = 'l', long)]
         lang: Option<String>,
     },
-    /// Record from microphone and transcribe to text (macOS only, requires sox + mlx-audio)
-    #[cfg(target_os = "macos")]
+    /// Record from microphone and transcribe to text (local Whisper, all platforms)
     Hear {
-        /// Language code for transcription (default: fr)
-        #[arg(short = 'l', long, default_value = "fr")]
-        lang: String,
+        /// Language code for transcription (default: auto-detect)
+        #[arg(short = 'l', long)]
+        lang: Option<String>,
+        /// Whisper model repo (default: openai/whisper-small, or VOX_STT_MODEL; try openai/whisper-large-v3-turbo with a GPU)
+        #[arg(short = 'm', long)]
+        model: Option<String>,
+        /// Transcribe this WAV file instead of recording from the microphone
+        #[arg(short = 'f', long)]
+        file: Option<String>,
         /// Maximum recording duration in seconds
         #[arg(short = 't', long, default_value = "30")]
         timeout: u32,
@@ -251,12 +256,14 @@ fn main() -> Result<()> {
         Some(Commands::Pack { action }) => handle_pack(action),
         #[cfg(target_os = "macos")]
         Some(Commands::Chat { voice, lang }) => handle_chat(voice, lang),
-        #[cfg(target_os = "macos")]
+
         Some(Commands::Hear {
             lang,
             timeout,
             silence,
-        }) => handle_hear(lang, timeout, silence),
+            model,
+            file,
+        }) => handle_hear(lang, timeout, silence, model, file),
         None => handle_speak(cli),
     }
 }
@@ -479,58 +486,36 @@ fn handle_chat(voice: Option<String>, lang: Option<String>) -> Result<()> {
     chat::run_chat_loop(config)
 }
 
-#[cfg(target_os = "macos")]
-fn handle_hear(lang: String, timeout: u32, silence: f64) -> Result<()> {
-    use vox::stt;
+fn handle_hear(
+    lang: Option<String>,
+    timeout: u32,
+    silence: f64,
+    model: Option<String>,
+    file: Option<String>,
+) -> Result<()> {
+    use vox::{mic, stt};
 
-    let tmp_dir = std::env::temp_dir();
-    let audio_path = tmp_dir.join("vox_hear_input.wav");
-    let audio_str = audio_path.to_string_lossy().to_string();
-
-    eprintln!("Listening... (speak now, will stop after {silence}s of silence)");
-
-    let status = std::process::Command::new("rec")
-        .arg(&audio_str)
-        .arg("rate")
-        .arg("16k")
-        .arg("silence")
-        .arg("1")
-        .arg("0.1")
-        .arg("1%")
-        .arg("1")
-        .arg(format!("{silence}"))
-        .arg("1%")
-        .arg("trim")
-        .arg("0")
-        .arg(timeout.to_string())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .context(clone::sox_install_hint())?;
-
-    if !status.success() {
-        anyhow::bail!("Recording failed");
-    }
-
-    // Check for empty recording
-    if let Ok(m) = std::fs::metadata(&audio_path)
-        && m.len() < 1000
-    {
-        let _ = std::fs::remove_file(&audio_path);
+    let samples = match file {
+        Some(path) => mic::read_wav_16k(std::path::Path::new(&path))?,
+        None => {
+            eprintln!(
+                "Listening... (speak now, stops after {silence}s of silence, max {timeout}s)"
+            );
+            mic::record(&mic::RecordOptions::until_silence(silence, timeout as f64))?
+        }
+    };
+    if samples.len() < mic::TARGET_RATE as usize / 4 {
         eprintln!("(no speech detected)");
         return Ok(());
     }
 
     eprintln!("Transcribing...");
-    let text = stt::transcribe(&audio_str, Some(&lang))?;
-    let _ = std::fs::remove_file(&audio_path);
-
+    let text = stt::transcribe_samples_with(&samples, lang.as_deref(), model.as_deref())?;
     if text.is_empty() {
         eprintln!("(no speech detected)");
     } else {
         println!("{text}");
     }
-
     Ok(())
 }
 

@@ -26,7 +26,6 @@ cargo install --path . --features cuda
 | Composant | Pour quoi | Installation |
 |-----------|----------|--------------|
 | `mlx-audio` | Backend qwen (macOS) | `uv pip install mlx-audio` |
-| `sox` | Enregistrement micro (clone record, hear) | `brew install sox` / `apt install sox` |
 
 ## Demarrage rapide
 
@@ -98,7 +97,7 @@ Creez un clone vocal a partir d'un enregistrement audio :
 # Depuis un fichier existant
 vox clone add mavoix --audio ~/enregistrement.wav --text "Transcription exacte"
 
-# Enregistrer depuis le micro (necessite sox)
+# Enregistrer depuis le micro (capture cpal integree)
 vox clone record mavoix --duration 10 --text "Ce que je dis"
 
 # Utiliser le clone
@@ -287,7 +286,10 @@ mv ~/.config/vox/vox_recovered.db ~/.config/vox/vox.db
 ```
 
 ### Enregistrement micro ne fonctionne pas
-Installez sox : `brew install sox` (macOS) ou `apt install sox` (Linux).
+La capture utilise cpal (aucun outil externe). Sur macOS, autorisez le micro pour votre terminal
+(Reglages > Confidentialite et securite > Microphone). Sur Linux, verifiez que ALSA/PulseAudio voit
+le peripherique (`arecord -l`). Si le detecteur de silence coupe trop tot ou trop tard, ajustez
+`VOX_VAD_THRESHOLD` (defaut 0.0125).
 
 ### "ANTHROPIC_API_KEY is required" (chat mode)
 Exportez votre cle API : `export ANTHROPIC_API_KEY=sk-ant-...`
