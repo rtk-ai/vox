@@ -65,11 +65,14 @@ jobs:
         with:
           cuda: '12.6.3'
           method: network
-          # cublas/curand are NOT cuda-prefixed packages: the action would ask
-          # for cuda-cublas-12-6, which does not exist. They belong in
-          # non-cuda-sub-packages, where they resolve to libcublas-12-6 etc.
-          sub-packages: '["nvcc", "cudart", "cudart-dev", "nvrtc", "nvrtc-dev"]'
-          non-cuda-sub-packages: '["libcublas", "libcublas-dev", "libcurand", "libcurand-dev"]'
+          # Component names differ by platform. On Linux these are apt packages
+          # (cuda-nvcc-12-6, ...), and the linker needs the -dev variants for
+          # the .so symlinks; cublas/curand have no cuda- prefix there, so they
+          # go in non-cuda-sub-packages (libcublas-12-6, ...). On Windows the
+          # NVIDIA installer takes plain component names and rejects both the
+          # -dev suffixes and the lib* names.
+          sub-packages: ${{ runner.os == 'Windows' && '["nvcc", "cudart", "nvrtc", "cublas", "curand"]' || '["nvcc", "cudart", "cudart-dev", "nvrtc", "nvrtc-dev"]' }}
+          non-cuda-sub-packages: ${{ runner.os == 'Windows' && '[]' || '["libcublas", "libcublas-dev", "libcurand", "libcurand-dev"]' }}
 
       # nvcc drives the host compiler, and on Windows that is cl.exe, which the
       # runner does not place on PATH. Without this, candle-kernels fails with
