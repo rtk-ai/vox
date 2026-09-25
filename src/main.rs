@@ -86,6 +86,10 @@ enum Commands {
     },
     /// Set up AI assistant integration (Claude Code + Claude Desktop)
     Init {
+        /// Language for the generated instructions and Stop hook
+        /// (default: your `vox config set lang`, else the system locale)
+        #[arg(short = 'l', long)]
+        lang: Option<String>,
         /// Integration mode: mcp, cli, skill, or all (default: mcp)
         #[arg(short, long, default_value = "mcp")]
         mode: InitMode,
@@ -242,7 +246,7 @@ fn main() -> Result<()> {
         Some(Commands::Setup) => tui::run(),
         Some(Commands::Bench) => handle_bench(),
         Some(Commands::Daemon { action }) => handle_daemon(action),
-        Some(Commands::Init { mode }) => handle_init(mode),
+        Some(Commands::Init { mode, lang }) => handle_init(mode, lang),
         Some(Commands::Serve) => mcp::run_server(),
         Some(Commands::Pack { action }) => handle_pack(action),
         #[cfg(target_os = "macos")]
@@ -530,7 +534,8 @@ fn handle_hear(lang: String, timeout: u32, silence: f64) -> Result<()> {
     Ok(())
 }
 
-fn handle_init(mode: InitMode) -> Result<()> {
+fn handle_init(mode: InitMode, lang: Option<String>) -> Result<()> {
+    let lang = vox::lang::resolve(lang.as_deref())?;
     let do_cli = matches!(mode, InitMode::Cli | InitMode::All);
     let do_mcp = matches!(mode, InitMode::Mcp | InitMode::All);
     let do_skill = matches!(mode, InitMode::Skill | InitMode::All);
@@ -538,7 +543,7 @@ fn handle_init(mode: InitMode) -> Result<()> {
     // --- CLI mode: CLAUDE.md + Stop hook ---
     if do_cli {
         let cwd = std::env::current_dir().context("Failed to get current directory")?;
-        let result = init::run_init(&cwd)?;
+        let result = init::run_init(&cwd, lang.as_deref())?;
 
         if result.claude_md_written {
             println!("[cli] CLAUDE.md configured with vox instructions.");

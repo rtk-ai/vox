@@ -192,6 +192,16 @@ vox init -m all         # all of the above
 
 Running `vox init` again is safe — it skips files that are already configured.
 
+The generated instructions and Stop hook speak **your** language. By default vox
+uses your `vox config set lang` preference, falling back to your system locale;
+with neither, it tells the agent to match whatever language you write in.
+Override it explicitly:
+
+```bash
+vox init -m cli --lang de   # agent summaries in German, hook says "Fertig."
+vox init -m cli --lang ja   # Japanese
+```
+
 ### CLI mode vs MCP mode
 
 **CLI mode is recommended** for AI coding agents. Benchmarks show CLI tools are [10-32x cheaper and 100% reliable vs 72% for MCP](https://mariozechner.at/posts/2025-08-15-mcp-vs-cli/) due to MCP's TCP timeout overhead and JSON schema cost per call.

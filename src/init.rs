@@ -17,8 +17,12 @@ pub struct InitResult {
     pub settings_written: bool,
 }
 
-/// Returns the full markdown block for a new CLAUDE.md.
-pub fn claude_md_block() -> String {
+/// The full markdown block written into a fresh CLAUDE.md.
+///
+/// `lang` is the resolved language. When it is `None` we do not pass `-l` and
+/// ask the agent to follow the user's own language instead of forcing one.
+pub fn claude_md_block(lang: Option<&str>) -> String {
+    let (command, guideline) = speak_example(lang);
     format!(
         r#"{VOX_START}
 ## Voice feedback (vox)
@@ -28,22 +32,37 @@ This project uses [vox](https://github.com/rtk-ai/vox) for spoken feedback.
 After completing a significant task (feature, bug fix, refactor), provide an oral summary:
 
 ```bash
-vox -l fr "Short summary of what was done, in French"
+{command}
 ```
 
-Keep summaries under 2 sentences. Use French.
+Keep summaries under 2 sentences. {guideline}
 Do not speak for trivial operations (formatting, single-line fixes).
 {VOX_END}"#
     )
 }
 
 /// Returns a short block to append to an existing CLAUDE.md.
-pub fn claude_md_append_block() -> String {
+pub fn claude_md_append_block(lang: Option<&str>) -> String {
+    let (command, guideline) = speak_example(lang);
     format!(
         r#"{VOX_START}
-After completing a significant task, call `vox -l fr "résumé en français"` to give a spoken summary.
+After completing a significant task, call `{command}` to give a spoken summary. {guideline}
 {VOX_END}"#
     )
+}
+
+/// The example `vox` invocation and the language guideline for a given language.
+fn speak_example(lang: Option<&str>) -> (String, String) {
+    match lang.and_then(|code| crate::lang::lang_name(code).map(|name| (code, name))) {
+        Some((code, name)) => (
+            format!(r#"vox -l {code} "Short summary of what was done, in {name}""#),
+            format!("Speak {name}."),
+        ),
+        None => (
+            r#"vox "Short summary of what was done""#.to_string(),
+            "Match the language the user is writing in.".to_string(),
+        ),
+    }
 }
 
 /// Checks whether the CLAUDE.md content already contains vox markers.
@@ -74,25 +93,29 @@ pub fn has_vox_hook(settings: &Value) -> bool {
     false
 }
 
+/// The Stop-hook command line: a short "done" phrase in the resolved language.
+pub fn stop_hook_command(lang: Option<&str>) -> String {
+    let phrase = crate::lang::done_phrase(lang);
+    match lang {
+        Some(code) => format!(r#"vox -l {code} "{phrase}""#),
+        None => format!(r#"vox "{phrase}""#),
+    }
+}
+
 /// Builds the settings.json content, merging with existing content if provided.
-pub fn build_settings(existing: Option<&str>) -> Result<String> {
-    let vox_hook: Value = serde_json::from_str(
-        r#"{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "vox -l fr \"Terminé.\""
-          }
-        ]
-      }
-    ]
-  }
-}"#,
-    )?;
+pub fn build_settings(existing: Option<&str>, lang: Option<&str>) -> Result<String> {
+    let vox_hook = serde_json::json!({
+        "hooks": {
+            "Stop": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        { "type": "command", "command": stop_hook_command(lang) }
+                    ]
+                }
+            ]
+        }
+    });
 
     let merged = match existing {
         Some(content) => {
@@ -136,7 +159,7 @@ pub fn build_settings(existing: Option<&str>) -> Result<String> {
 }
 
 /// Orchestrates the full init: writes CLAUDE.md and .claude/settings.json.
-pub fn run_init(project_dir: &Path) -> Result<InitResult> {
+pub fn run_init(project_dir: &Path, lang: Option<&str>) -> Result<InitResult> {
     let mut result = InitResult {
         claude_md_written: false,
         settings_written: false,
@@ -147,12 +170,16 @@ pub fn run_init(project_dir: &Path) -> Result<InitResult> {
     if claude_md_path.exists() {
         let content = fs::read_to_string(&claude_md_path).context("Failed to read CLAUDE.md")?;
         if !claude_md_has_vox(&content) {
-            let new_content = format!("{}\n\n{}\n", content.trim_end(), claude_md_append_block());
+            let new_content = format!(
+                "{}\n\n{}\n",
+                content.trim_end(),
+                claude_md_append_block(lang)
+            );
             fs::write(&claude_md_path, new_content).context("Failed to write CLAUDE.md")?;
             result.claude_md_written = true;
         }
     } else {
-        fs::write(&claude_md_path, format!("{}\n", claude_md_block()))
+        fs::write(&claude_md_path, format!("{}\n", claude_md_block(lang)))
             .context("Failed to create CLAUDE.md")?;
         result.claude_md_written = true;
     }
@@ -167,14 +194,14 @@ pub fn run_init(project_dir: &Path) -> Result<InitResult> {
             serde_json::from_str(&content).context("Invalid JSON in settings.json")?;
 
         if !has_vox_hook(&parsed) {
-            let new_content = build_settings(Some(&content))?;
+            let new_content = build_settings(Some(&content), lang)?;
             fs::write(&settings_path, format!("{}\n", new_content))
                 .context("Failed to write settings.json")?;
             result.settings_written = true;
         }
     } else {
         fs::create_dir_all(&claude_dir).context("Failed to create .claude directory")?;
-        let content = build_settings(None)?;
+        let content = build_settings(None, lang)?;
         fs::write(&settings_path, format!("{}\n", content))
             .context("Failed to create settings.json")?;
         result.settings_written = true;

@@ -44,29 +44,6 @@ You can have a voice conversation with the user — you ARE the brain, no API ke
 Loop: vox_hear (listen) → you think → vox_speak (respond). Repeat until the user says goodbye.\n\
 When the user asks to \"chat\" or \"talk\" or \"parler\", start this loop.";
 
-fn configured_lang() -> Option<String> {
-    db::open()
-        .ok()
-        .and_then(|conn| db::get_preferences(&conn).ok())
-        .and_then(|prefs| prefs.lang)
-        .filter(|lang| !lang.is_empty())
-}
-
-fn normalize_locale(locale: &str) -> Option<String> {
-    let lang = locale.split(['-', '_']).next()?.to_lowercase();
-    crate::config::SUPPORTED_LANGS
-        .contains(&lang.as_str())
-        .then_some(lang)
-}
-
-fn system_lang() -> Option<String> {
-    normalize_locale(&sys_locale::get_locale()?)
-}
-
-fn default_lang() -> Option<String> {
-    configured_lang().or_else(system_lang)
-}
-
 fn vox_instructions(lang: Option<&str>) -> String {
     let language_guideline = match lang {
         Some(lang) => format!(
@@ -177,7 +154,7 @@ fn handle_initialize(id: Value) -> JsonRpcResponse {
                 "name": SERVER_NAME,
                 "version": SERVER_VERSION
             },
-            "instructions": vox_instructions(default_lang().as_deref())
+            "instructions": vox_instructions(crate::lang::default_lang().as_deref())
         }),
     )
 }
@@ -1022,29 +999,5 @@ mod tests {
         assert!(vox_instructions(Some("fr")).contains("Speak in the user's language (fr)"));
         assert!(vox_instructions(Some("es")).contains("Speak in the user's language (es)"));
         assert!(vox_instructions(Some("ja")).contains("Speak in the user's language (ja)"));
-    }
-
-    #[test]
-    fn normalize_locale_maps_primary_subtag_when_supported() {
-        assert_eq!(normalize_locale("fr-FR"), Some("fr".to_string()));
-        assert_eq!(normalize_locale("en_US"), Some("en".to_string()));
-        assert_eq!(normalize_locale("de-AT"), Some("de".to_string()));
-        assert_eq!(normalize_locale("FR"), Some("fr".to_string()));
-        assert_eq!(normalize_locale("zh-Hant"), Some("zh".to_string()));
-    }
-
-    #[test]
-    fn normalize_locale_rejects_unsupported_or_empty() {
-        assert_eq!(normalize_locale("cy-GB"), None);
-        assert_eq!(normalize_locale("C"), None);
-        assert_eq!(normalize_locale(""), None);
-    }
-
-    #[test]
-    fn system_lang_is_supported_or_none() {
-        assert!(
-            system_lang()
-                .is_none_or(|lang| crate::config::SUPPORTED_LANGS.contains(&lang.as_str()))
-        );
     }
 }
