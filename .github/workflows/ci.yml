@@ -40,7 +40,11 @@ jobs:
             features: ""
             deps: ""
           - name: Windows (CUDA)
-            os: windows-latest
+            # Not windows-latest: that image now ships Visual Studio 18, and
+            # every CUDA this action can install (12.8.1 at most) rejects it
+            # in crt/host_config.h. windows-2022 carries a VS 2022 toolchain
+            # nvcc accepts.
+            os: windows-2022
             features: cuda
             cuda: true
             deps: ""
@@ -63,11 +67,7 @@ jobs:
         if: matrix.cuda == true
         uses: Jimver/cuda-toolkit@v0.2.22
         with:
-          # Linux is green on 12.6. Windows needs a newer CUDA: 12.6 rejects the
-          # runner's Visual Studio 18 outright ("unsupported Microsoft Visual
-          # Studio version" from crt/host_config.h). cudarc 0.17 supports up
-          # to CUDA 13.0.
-          cuda: ${{ runner.os == 'Windows' && '13.0.0' || '12.6.3' }}
+          cuda: '12.6.3'
           method: network
           # Component names differ by platform. On Linux these are apt packages
           # (cuda-nvcc-12-6, ...), and the linker needs the -dev variants for

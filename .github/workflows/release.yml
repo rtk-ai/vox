@@ -66,7 +66,9 @@ jobs:
             archive: zip
             artifact_suffix: ""
           - target: x86_64-pc-windows-msvc
-            os: windows-latest
+            # See ci.yml: windows-latest ships Visual Studio 18, which no
+            # installable CUDA here supports.
+            os: windows-2022
             features: cuda
             archive: zip
             cuda: true
@@ -99,11 +101,7 @@ jobs:
         if: matrix.cuda == true
         uses: Jimver/cuda-toolkit@v0.2.22
         with:
-          # Linux is green on 12.6. Windows needs a newer CUDA: 12.6 rejects the
-          # runner's Visual Studio 18 outright ("unsupported Microsoft Visual
-          # Studio version" from crt/host_config.h). cudarc 0.17 supports up
-          # to CUDA 13.0.
-          cuda: ${{ runner.os == 'Windows' && '13.0.0' || '12.6.3' }}
+          cuda: '12.6.3'
           method: network
           # Component names differ by platform. On Linux these are apt packages
           # (cuda-nvcc-12-6, ...), and the linker needs the -dev variants for
