@@ -574,12 +574,19 @@ fn tool_speak(args: &Value) -> ToolResult {
 
     tool_ok(format!(
         "Spoken: \"{}\" ({duration_ms}ms, {effective_backend})",
-        if text.len() > 80 {
-            format!("{}...", &text[..77])
-        } else {
-            text.to_string()
-        }
+        truncate_for_echo(text)
     ))
+}
+
+/// Shorten text for the tool result. Truncating by byte index aborts the whole
+/// MCP server on any multi-byte character, so count characters instead.
+pub fn truncate_for_echo(text: &str) -> String {
+    const MAX_CHARS: usize = 80;
+    if text.chars().count() <= MAX_CHARS {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(MAX_CHARS - 3).collect();
+    format!("{head}...")
 }
 
 fn tool_list_voices(args: &Value) -> ToolResult {
@@ -943,6 +950,39 @@ mod tests {
         let instructions = vox_instructions(None);
         assert!(instructions.contains("Match the language the user is writing in"));
         assert!(!instructions.contains("Use French by default"));
+    }
+
+    #[test]
+    fn truncate_for_echo_never_panics_on_multibyte() {
+        // A byte-index slice at 77 landed mid-character here and aborted the
+        // whole server. By characters it is short, so it comes back intact.
+        let ja =
+            "終わりました。認証モジュールのリファクタリングとユニットテストの修正が完了しました。";
+        assert!(ja.len() > 80, "must be long in bytes");
+        assert!(ja.chars().count() < 80, "but short in characters");
+        assert_eq!(truncate_for_echo(ja), ja);
+
+        // Genuinely long multi-byte text is truncated on a character boundary.
+        let long_ja = ja.repeat(3);
+        let out = truncate_for_echo(&long_ja);
+        assert!(out.ends_with("..."));
+        assert_eq!(out.chars().count(), 80);
+        assert!(long_ja.starts_with(out.trim_end_matches('.')));
+
+        for text in [
+            "Les dépendances vulnérables ont été mises à jour et la CI est de nouveau verte partout, enfin.",
+            "완료했습니다. 인증 모듈의 리팩터링과 단위 테스트 수정이 모두 끝났습니다. 배포 준비가 되었습니다.",
+            "🎉 ✅ 🚀 ".repeat(40).as_str(),
+        ] {
+            let _ = truncate_for_echo(text);
+        }
+    }
+
+    #[test]
+    fn truncate_for_echo_leaves_short_text_alone() {
+        assert_eq!(truncate_for_echo("Terminé."), "Terminé.");
+        let exactly_80: String = "é".repeat(80);
+        assert_eq!(truncate_for_echo(&exactly_80), exactly_80);
     }
 
     #[test]

@@ -3,8 +3,9 @@
 //! Multilingual neural TTS, <1s inference on CPU, 30+ languages.
 //! Zero Python dependency. Model files auto-downloaded from HuggingFace.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use include_dir::{Dir, include_dir};
@@ -118,6 +119,47 @@ fn model_for_lang(lang: &str) -> (&'static str, &'static str) {
     }
 }
 
+/// Timeout for a single model download. Without one a dead connection hangs
+/// the CLI forever with no output, which is what users actually reported.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Download a model file, refusing error responses.
+///
+/// Without `error_for_status` an HTTP 404 or 429 HTML body was written straight
+/// into the `.onnx` file; the `if !path.exists()` guard then made that
+/// corruption permanent, and every later run failed with an opaque ONNX error.
+fn download(url: &str, what: &str) -> Result<Vec<u8>> {
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(DOWNLOAD_TIMEOUT)
+        .build()
+        .context("failed to build HTTP client")?;
+    let response = client.get(url).send().with_context(|| {
+        format!("failed to download {what} (no network? try a different backend: vox -b say)")
+    })?;
+    let response = response
+        .error_for_status()
+        .with_context(|| format!("server refused to send {what}"))?;
+    let bytes = response
+        .bytes()
+        .with_context(|| format!("failed to read {what}"))?;
+    if bytes.is_empty() {
+        anyhow::bail!("{what} came back empty");
+    }
+    Ok(bytes.to_vec())
+}
+
+/// Write to a temporary file and rename, so an interrupted download never
+/// leaves a half-written model behind for the `exists()` guard to trust.
+fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
+    let tmp = path.with_extension("part");
+    std::fs::write(&tmp, bytes).with_context(|| format!("failed to write {}", tmp.display()))?;
+    std::fs::rename(&tmp, path)
+        .with_context(|| format!("failed to finalise {}", path.display()))?;
+    Ok(())
+}
+
 /// Ensure model files exist, downloading if needed. Returns (onnx_path, json_path).
 fn ensure_model(lang: &str) -> Result<(PathBuf, PathBuf)> {
     let (model_name, base_url) = model_for_lang(lang);
@@ -128,12 +170,13 @@ fn ensure_model(lang: &str) -> Result<(PathBuf, PathBuf)> {
     let json_path = dir.join(format!("{model_name}.onnx.json"));
 
     if !onnx_path.exists() {
-        eprintln!("Downloading piper model '{model_name}'...");
+        eprintln!(
+            "Downloading piper voice '{model_name}' (~60 MB, once) to {}...",
+            dir.display()
+        );
         let url = format!("{base_url}/{model_name}.onnx?download=true");
-        let bytes = reqwest::blocking::get(&url)
-            .and_then(|r| r.bytes())
-            .with_context(|| format!("failed to download {model_name}.onnx"))?;
-        std::fs::write(&onnx_path, &bytes)?;
+        let bytes = download(&url, &format!("{model_name}.onnx"))?;
+        write_atomically(&onnx_path, &bytes)?;
         eprintln!(
             "Downloaded {} ({:.1} MB)",
             model_name,
@@ -143,10 +186,8 @@ fn ensure_model(lang: &str) -> Result<(PathBuf, PathBuf)> {
 
     if !json_path.exists() {
         let url = format!("{base_url}/{model_name}.onnx.json?download=true");
-        let bytes = reqwest::blocking::get(&url)
-            .and_then(|r| r.bytes())
-            .with_context(|| format!("failed to download {model_name}.onnx.json"))?;
-        std::fs::write(&json_path, &bytes)?;
+        let bytes = download(&url, &format!("{model_name}.onnx.json"))?;
+        write_atomically(&json_path, &bytes)?;
     }
 
     Ok((onnx_path, json_path))
@@ -250,5 +291,53 @@ impl TtsBackend for PiperBackend {
 
     fn is_available(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_atomically_leaves_no_partial_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("voice.onnx");
+        write_atomically(&target, b"model bytes").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"model bytes");
+        // The staging file must be gone, so the `exists()` guard cannot trust it.
+        assert!(!target.with_extension("part").exists());
+    }
+
+    #[test]
+    fn write_atomically_replaces_an_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("voice.onnx");
+        std::fs::write(&target, b"old").unwrap();
+        write_atomically(&target, b"new").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+    }
+
+    #[test]
+    fn download_refuses_an_error_response() {
+        // A 404 used to be written into the model file verbatim.
+        let err = download(
+            "https://huggingface.co/rtk-ai/does-not-exist-404",
+            "test.onnx",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("refused to send") || err.contains("failed to download"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn every_supported_language_maps_to_a_voice() {
+        for lang in crate::config::SUPPORTED_LANGS {
+            let (model, url) = model_for_lang(lang);
+            assert!(!model.is_empty(), "{lang} has no model");
+            assert!(url.starts_with("https://"), "{lang} has a bad url");
+        }
     }
 }
