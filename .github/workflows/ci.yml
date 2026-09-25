@@ -14,10 +14,8 @@ jobs:
   test:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    # CUDA matrix entries are best-effort: GH-hosted runners' kernel mismatch
-    # currently breaks nvidia-dkms (Jimver/cuda-toolkit action). Mirror the
-    # non-blocking behavior already applied in release.yml.
-    continue-on-error: ${{ matrix.cuda == true }}
+    # The Linux CUDA job is blocking again. It was best-effort for months and
+    # silently rotted; now that it builds, a regression should fail the PR.
     strategy:
       fail-fast: false
       matrix:
@@ -38,15 +36,6 @@ jobs:
           - name: Windows (CPU)
             os: windows-latest
             features: ""
-            deps: ""
-          - name: Windows (CUDA)
-            # Not windows-latest: that image now ships Visual Studio 18, and
-            # every CUDA this action can install (12.8.1 at most) rejects it
-            # in crt/host_config.h. windows-2022 carries a VS 2022 toolchain
-            # nvcc accepts.
-            os: windows-2022
-            features: cuda
-            cuda: true
             deps: ""
 
     steps:
@@ -69,26 +58,17 @@ jobs:
         with:
           cuda: '12.6.3'
           method: network
-          # Component names differ by platform. On Linux these are apt packages
-          # (cuda-nvcc-12-6, ...), and the linker needs the -dev variants for
-          # the .so symlinks; cublas/curand have no cuda- prefix there, so they
-          # go in non-cuda-sub-packages (libcublas-12-6, ...). On Windows the
-          # NVIDIA installer takes plain component names and rejects both the
-          # -dev suffixes and the lib* names.
-          sub-packages: ${{ runner.os == 'Windows' && '["nvcc", "cudart", "nvrtc", "nvrtc_dev", "cublas", "cublas_dev", "curand", "curand_dev"]' || '["nvcc", "cudart", "cudart-dev", "nvrtc", "nvrtc-dev"]' }}
-          non-cuda-sub-packages: ${{ runner.os == 'Windows' && '[]' || '["libcublas", "libcublas-dev", "libcurand", "libcurand-dev"]' }}
+          # Only the components candle-kernels/cudarc actually link. The full
+          # toolkit pulls cuda-demo-suite / cuda-runtime, whose dpkg
+          # post-install fails on the runner. The linker needs the -dev
+          # variants for the .so symlinks, and cublas/curand carry no cuda-
+          # prefix, so they live in non-cuda-sub-packages.
+          sub-packages: '["nvcc", "cudart", "cudart-dev", "nvrtc", "nvrtc-dev"]'
+          non-cuda-sub-packages: '["libcublas", "libcublas-dev", "libcurand", "libcurand-dev"]'
 
       # nvcc drives the host compiler, and on Windows that is cl.exe, which the
       # runner does not place on PATH. Without this, candle-kernels fails with
       # "nvcc fatal : Cannot find compiler 'cl.exe' in PATH".
-      # nvcc drives the host compiler, and on Windows that is cl.exe, which the
-      # runner does not place on PATH. Do not pin a toolset here: the image
-      # ships Visual Studio 18, which carries no 14.3x toolset, and asking for
-      # one fails with "Could not setup Developer Command Prompt".
-      - name: Set up MSVC environment (Windows CUDA)
-        if: runner.os == 'Windows' && matrix.cuda == true
-        uses: ilammy/msvc-dev-cmd@v1
-
       # esaxx-rs forces /MT via .static_crt(true) but ort-sys prebuilt links
       # against /MD. Force /MD on Windows so cc's last flag wins and the
       # CRT matches ort-sys. Without this, link fails with LNK2038.
