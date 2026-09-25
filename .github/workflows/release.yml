@@ -101,8 +101,11 @@ jobs:
         with:
           cuda: '12.6.3'
           method: network
-          sub-packages: '["nvcc", "cudart", "nvrtc", "cublas", "curand"]'
-          non-cuda-sub-packages: '[]'
+          # cublas/curand are NOT cuda-prefixed packages: the action would ask
+          # for cuda-cublas-12-6, which does not exist. They belong in
+          # non-cuda-sub-packages, where they resolve to libcublas-12-6 etc.
+          sub-packages: '["nvcc", "cudart", "nvrtc"]'
+          non-cuda-sub-packages: '["libcublas", "libcublas-dev", "libcurand", "libcurand-dev"]'
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
