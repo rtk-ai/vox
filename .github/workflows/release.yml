@@ -91,12 +91,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ${{ matrix.deps }}
 
+      # Install only the components candle-kernels needs (nvcc + the libs cudarc
+      # links). The full toolkit pulls cuda-demo-suite / cuda-runtime, whose
+      # dpkg post-install scripts fail on the GitHub runner and take the whole
+      # job down before a single line of Rust is compiled.
       - name: Install CUDA toolkit
         if: matrix.cuda == true
         uses: Jimver/cuda-toolkit@v0.2.22
         with:
           cuda: '12.6.3'
           method: network
+          sub-packages: '["nvcc", "cudart", "nvrtc", "cublas", "curand"]'
+          non-cuda-sub-packages: '[]'
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
