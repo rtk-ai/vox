@@ -68,8 +68,15 @@ jobs:
           # cublas/curand are NOT cuda-prefixed packages: the action would ask
           # for cuda-cublas-12-6, which does not exist. They belong in
           # non-cuda-sub-packages, where they resolve to libcublas-12-6 etc.
-          sub-packages: '["nvcc", "cudart", "nvrtc"]'
+          sub-packages: '["nvcc", "cudart", "cudart-dev", "nvrtc", "nvrtc-dev"]'
           non-cuda-sub-packages: '["libcublas", "libcublas-dev", "libcurand", "libcurand-dev"]'
+
+      # nvcc drives the host compiler, and on Windows that is cl.exe, which the
+      # runner does not place on PATH. Without this, candle-kernels fails with
+      # "nvcc fatal : Cannot find compiler 'cl.exe' in PATH".
+      - name: Set up MSVC environment (Windows CUDA)
+        if: runner.os == 'Windows' && matrix.cuda == true
+        uses: ilammy/msvc-dev-cmd@v1
 
       # esaxx-rs forces /MT via .static_crt(true) but ort-sys prebuilt links
       # against /MD. Force /MD on Windows so cc's last flag wins and the
