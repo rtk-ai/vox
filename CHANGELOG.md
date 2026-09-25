@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.16.0](https://github.com/rtk-ai/vox/compare/v0.15.1...v0.16.0) (2026-09-25)
+
+
+### Features
+
+* **stt:** pure-Rust multilingual speech-to-text (Whisper on candle) and cpal mic capture ([#74](https://github.com/rtk-ai/vox/issues/74)) ([56e2a2f](https://github.com/rtk-ai/vox/commit/56e2a2f6e802e17e5237f9295ddba2d6c69b111b))
+
+
+### Bug Fixes
+
+* first-run robustness — MCP panic, poisoned piper cache, silent download ([#77](https://github.com/rtk-ai/vox/issues/77)) ([1d1f932](https://github.com/rtk-ai/vox/commit/1d1f9329e7c71aa835dedaf24b51bac2c811c998))
+* **init:** stop forcing French on every user, add --lang ([#76](https://github.com/rtk-ai/vox/issues/76)) ([76a758e](https://github.com/rtk-ai/vox/commit/76a758eb876f430572ce2805de16f183eaa558b1))
+* **security:** dependency audit, clippy fixes and deterministic security tests ([#73](https://github.com/rtk-ai/vox/issues/73)) ([4ffb774](https://github.com/rtk-ai/vox/commit/4ffb7740d83a34f5f37358bebdf5634f4bf0c1cb))
+
 ## [0.15.1](https://github.com/rtk-ai/vox/compare/v0.15.0...v0.15.1) (2026-07-09)
 
 
