@@ -16,6 +16,13 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 /// Sample rate of the audio returned by [`record`].
 pub const TARGET_RATE: u32 = 16_000;
 
+/// Widest box-filter window used when downsampling. Anti-aliasing gains
+/// nothing beyond this, and an unbounded window is quadratic on a hostile rate.
+pub const MAX_FILTER_WINDOW: usize = 64;
+
+/// Highest input sample rate accepted from a file header.
+pub const MAX_SAMPLE_RATE: u32 = 768_000;
+
 /// Frame size used by the VAD, in milliseconds.
 pub const VAD_FRAME_MS: usize = 50;
 
@@ -30,6 +37,29 @@ pub const NOISE_FLOOR_FRAMES: usize = 6; // 300 ms at 50 ms/frame
 pub const NOISE_FLOOR_FACTOR: f32 = 3.0;
 pub const MAX_VAD_THRESHOLD: f32 = 0.1;
 
+/// Fraction of the loudest frame seen so far that still counts as speech.
+/// A quiet microphone never reaches the absolute threshold, so the detector
+/// has to scale to whatever level the device actually delivers.
+pub const PEAK_FRACTION: f32 = 0.18;
+
+/// Absolute floor: below this the frame is treated as silence whatever the
+/// peak, so room tone in a dead-quiet recording is not mistaken for speech.
+pub const MIN_VAD_THRESHOLD: f32 = 0.002;
+
+/// Input peak under which the microphone is too quiet to transcribe well.
+pub const LOW_INPUT_PEAK: f32 = 0.05;
+
+/// How far the loudest frame must rise above the noise floor before the buffer
+/// is considered to hold speech at all. Without this, a peak-relative
+/// threshold on a silent recording drops below the room tone and every frame
+/// reads as voiced.
+pub const SPEECH_SNR: f32 = 4.0;
+
+/// Whether a recording holds speech, rather than just room tone.
+pub fn has_speech(peak: f32, noise_floor: f32) -> bool {
+    peak > MIN_VAD_THRESHOLD && peak > noise_floor * SPEECH_SNR
+}
+
 /// Effective VAD threshold given the RMS of the first frames (ambient noise).
 pub fn adaptive_threshold(base: f32, first_frames: &[f32]) -> f32 {
     if first_frames.is_empty() {
@@ -37,6 +67,38 @@ pub fn adaptive_threshold(base: f32, first_frames: &[f32]) -> f32 {
     }
     let floor = first_frames.iter().sum::<f32>() / first_frames.len() as f32;
     (floor * NOISE_FLOOR_FACTOR).clamp(base, MAX_VAD_THRESHOLD)
+}
+
+/// Threshold for a stream whose loudest frame so far is `peak`.
+///
+/// A fixed threshold assumes a well-levelled microphone. On a quiet input the
+/// whole utterance sits barely above it, so the detector latches and drops on
+/// every softer syllable and the speaker has to repeat themselves. Scaling to
+/// the observed peak fixes that, while `noise_floor` keeps a noisy room from
+/// dragging the threshold down.
+pub fn level_threshold(base: f32, peak: f32, noise_floor: f32) -> f32 {
+    let from_peak = peak * PEAK_FRACTION;
+    let from_noise = noise_floor * NOISE_FLOOR_FACTOR;
+    // Never raise the bar above `base`: a loud, clean signal must keep the
+    // configured threshold. `max(MIN)` keeps the upper bound above the lower
+    // one even when the caller passes a `base` below MIN_VAD_THRESHOLD —
+    // `clamp` panics if its bounds cross.
+    let upper = base.clamp(MIN_VAD_THRESHOLD, MAX_VAD_THRESHOLD);
+    // Take the more demanding of the two estimates, then bound it.
+    from_peak.max(from_noise).clamp(MIN_VAD_THRESHOLD, upper)
+}
+
+/// Normalise quiet audio so Whisper sees a healthy level. Returns the gain.
+pub fn normalise(samples: &mut [f32], target_peak: f32) -> f32 {
+    let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    if peak <= f32::EPSILON || peak >= target_peak {
+        return 1.0;
+    }
+    let gain = (target_peak / peak).min(20.0);
+    for s in samples.iter_mut() {
+        *s = (*s * gain).clamp(-1.0, 1.0);
+    }
+    gain
 }
 
 /// When to stop recording.
@@ -130,13 +192,19 @@ pub fn downmix(interleaved: &[f32], channels: usize) -> Vec<f32> {
 /// Resample mono audio with a box low-pass followed by linear interpolation.
 /// Good enough for speech recognition; not meant for music.
 pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
-    if from_rate == to_rate || samples.is_empty() {
+    // A zero rate makes `ratio` zero and `out_len` infinite, which saturates to
+    // usize::MAX and aborts the process on the allocation. A WAV header can
+    // declare rate 0 and hound accepts it, so this is reachable from any file
+    // handed to `vox hear -f` or the vox_hear MCP tool.
+    if from_rate == 0 || to_rate == 0 || from_rate == to_rate || samples.is_empty() {
         return samples.to_vec();
     }
     let ratio = from_rate as f64 / to_rate as f64;
     // Anti-alias when downsampling: average over `ratio` input samples.
     let filtered: Vec<f32> = if ratio > 1.0 {
-        let win = ratio.ceil() as usize;
+        // Bound the window: a crafted header (rate 2^31 against 16 kHz) would
+        // otherwise make the box filter quadratic over the whole buffer.
+        let win = (ratio.ceil() as usize).min(MAX_FILTER_WINDOW);
         let half = win / 2;
         (0..samples.len())
             .map(|i| {
@@ -226,6 +294,13 @@ pub fn read_wav_16k(path: &Path) -> Result<Vec<f32>> {
                 .collect::<Result<Vec<_>, _>>()?
         }
     };
+    if spec.sample_rate == 0 || spec.sample_rate > MAX_SAMPLE_RATE {
+        anyhow::bail!(
+            "{}: unusable sample rate {} Hz in the WAV header",
+            path.display(),
+            spec.sample_rate
+        );
+    }
     let mono = downmix(&samples, spec.channels as usize);
     Ok(resample(&mono, spec.sample_rate, TARGET_RATE))
 }
@@ -323,6 +398,7 @@ pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
             timeout,
             max_wait,
         } => {
+            crate::audio::play_cue(crate::audio::Cue::Start);
             let frame_len = (cap.rate as usize * VAD_FRAME_MS) / 1000;
             let silence_frames = ((silence * 1000.0) / VAD_FRAME_MS as f64).ceil() as usize;
             let debug = std::env::var_os("VOX_VAD_DEBUG").is_some();
@@ -342,8 +418,10 @@ pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
                     }
                 }
                 if frame_rms.len() >= NOISE_FLOOR_FRAMES {
-                    threshold =
-                        adaptive_threshold(opts.vad_threshold, &frame_rms[..NOISE_FLOOR_FRAMES]);
+                    let floor = frame_rms[..NOISE_FLOOR_FRAMES].iter().sum::<f32>()
+                        / NOISE_FLOOR_FRAMES as f32;
+                    let peak = frame_rms.iter().fold(0.0f32, |m, &v| m.max(v));
+                    threshold = level_threshold(opts.vad_threshold, peak, floor);
                 }
                 let (start, stop) = speech_bounds(&frame_rms, threshold, silence_frames);
                 let elapsed = started.elapsed().as_secs_f64();
@@ -354,8 +432,26 @@ pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
                     break;
                 }
             }
+            crate::audio::play_cue(crate::audio::Cue::Stop);
             let raw = cap.buf.lock().map_err(|_| anyhow!("mic buffer poisoned"))?;
             let (start, stop) = speech_bounds(&frame_rms, threshold, silence_frames);
+            let peak = frame_rms.iter().fold(0.0f32, |m, &v| m.max(v));
+            let noise_floor = frame_rms.iter().take(NOISE_FLOOR_FRAMES).sum::<f32>()
+                / frame_rms.len().clamp(1, NOISE_FLOOR_FRAMES) as f32;
+            if !has_speech(peak, noise_floor) {
+                if debug {
+                    eprintln!(
+                        "[vad] no speech: peak={peak:.4} noise={noise_floor:.4} (needs peak > noise x{SPEECH_SNR})"
+                    );
+                }
+                return Ok((Vec::new(), cap.rate));
+            }
+            if peak < LOW_INPUT_PEAK {
+                eprintln!(
+                    "Note: microphone input is quiet (peak {peak:.3}). Raise the input volume \
+                     for better accuracy; vox is amplifying it for now."
+                );
+            }
             if debug {
                 let max = frame_rms.iter().cloned().fold(0.0f32, f32::max);
                 let mean = frame_rms.iter().sum::<f32>() / frame_rms.len().max(1) as f32;
@@ -374,7 +470,12 @@ pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
                 .map(|f| f * frame_len)
                 .unwrap_or(raw.len())
                 .min(raw.len());
-            return Ok((raw[lo..hi].to_vec(), cap.rate));
+            let mut segment = raw[lo..hi].to_vec();
+            let gain = normalise(&mut segment, 0.5);
+            if debug && gain > 1.0 {
+                eprintln!("[vad] applied gain x{gain:.1}");
+            }
+            return Ok((segment, cap.rate));
         }
     }
 
@@ -412,6 +513,49 @@ mod tests {
         let out = resample(&input, 32_000, 16_000);
         assert_eq!(out.len(), 500);
         assert!(out.iter().all(|s| s.abs() <= 1.0));
+    }
+
+    #[test]
+    fn resample_survives_a_zero_rate() {
+        // Reachable from a crafted WAV header: without the guard this computed
+        // out_len = usize::MAX and aborted the process.
+        let input = vec![0.1, 0.2, 0.3];
+        assert_eq!(resample(&input, 0, 16_000), input);
+        assert_eq!(resample(&input, 16_000, 0), input);
+        assert!(resample(&[], 0, 0).is_empty());
+    }
+
+    #[test]
+    fn resample_window_stays_bounded_on_an_absurd_rate() {
+        // A 2^31 Hz header must not make the filter quadratic.
+        let input: Vec<f32> = (0..4000).map(|i| (i as f32 * 0.01).sin()).collect();
+        let out = resample(&input, 2_000_000_000, 16_000);
+        assert!(out.len() < input.len());
+        assert!(out.iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn read_wav_rejects_an_impossible_sample_rate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.wav");
+        // hound will not write rate 0, so craft the header by hand.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&36u32.to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // sample rate 0
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // byte rate 0
+        bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&16u16.to_le_bytes()); // bits
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&0i16.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        // Either hound rejects it or our guard does — neither may abort.
+        let _ = read_wav_16k(&path);
     }
 
     #[test]
@@ -456,6 +600,55 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);
         assert!(max_err < 1e-3, "max_err={max_err}");
+    }
+
+    #[test]
+    fn level_threshold_never_panics_on_a_tiny_base() {
+        // `clamp` panics when its bounds cross; a base below MIN must not do that.
+        let t = level_threshold(0.0001, 0.3, 0.001);
+        assert!(t.is_finite());
+        assert!(t >= MIN_VAD_THRESHOLD);
+        // And the degenerate all-zero case.
+        assert!(level_threshold(0.0, 0.0, 0.0).is_finite());
+    }
+
+    #[test]
+    fn has_speech_rejects_room_tone() {
+        // A silent recording: peak barely above the floor.
+        assert!(!has_speech(0.0056, 0.0013 * 4.0));
+        assert!(!has_speech(0.001, 0.0002));
+        // A real utterance rises well above the floor.
+        assert!(has_speech(0.0745, 0.0013));
+        assert!(has_speech(0.02, 0.001));
+    }
+
+    #[test]
+    fn level_threshold_scales_to_a_quiet_microphone() {
+        // Loud, clean input: stays at the configured threshold.
+        assert_eq!(level_threshold(0.0125, 0.5, 0.001), 0.0125);
+        // Quiet input: the bar comes down so the utterance is not chopped up.
+        let quiet = level_threshold(0.0125, 0.02, 0.001);
+        assert!(quiet < 0.0125, "expected below base, got {quiet}");
+        assert!(quiet >= MIN_VAD_THRESHOLD);
+        // A noisy room keeps the bar up.
+        let noisy = level_threshold(0.0125, 0.02, 0.01);
+        assert!(
+            noisy > quiet,
+            "noise must raise the bar: {noisy} vs {quiet}"
+        );
+    }
+
+    #[test]
+    fn normalise_amplifies_quiet_audio_and_leaves_loud_audio_alone() {
+        let mut quiet: Vec<f32> = (0..100).map(|i| (i as f32 * 0.1).sin() * 0.02).collect();
+        let gain = normalise(&mut quiet, 0.5);
+        assert!(gain > 1.0, "quiet audio must be amplified, got {gain}");
+        assert!(quiet.iter().all(|v| v.abs() <= 1.0));
+
+        let mut loud: Vec<f32> = (0..100).map(|i| (i as f32 * 0.1).sin() * 0.9).collect();
+        let before = loud.clone();
+        assert_eq!(normalise(&mut loud, 0.5), 1.0);
+        assert_eq!(loud, before, "loud audio must be untouched");
     }
 
     #[test]
