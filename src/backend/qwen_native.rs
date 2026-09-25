@@ -89,6 +89,18 @@ impl TtsBackend for QwenNativeBackend {
         let ref_audio_path = opts.ref_audio.clone();
         let ref_text = opts.ref_text.clone();
 
+        // Warn before loading the model (a ~1 GB download on first use), not
+        // after: the Base checkpoint has no preset speakers and `synthesize`
+        // takes no language, so the language only reaches the model through
+        // the voice-clone path. Say so instead of ignoring the flag silently.
+        if opts.lang.is_some() && ref_audio_path.is_none() {
+            eprintln!(
+                "Warning: -l/--lang has no effect on qwen-native without a voice clone \
+                 (the Base model infers the language from the text). \
+                 Use -v <clone> for language control, or -b piper for per-language voices."
+            );
+        }
+
         let mut audio_buf = with_model(opts.model.as_deref(), |model| {
             if let Some(ref path) = ref_audio_path {
                 let ref_audio = AudioBuffer::load(path)

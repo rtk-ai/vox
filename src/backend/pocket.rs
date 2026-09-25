@@ -85,6 +85,31 @@ fn ensure_config(voice_cloning: bool) -> Result<PathBuf> {
     Ok(dir.join(name))
 }
 
+/// Tell the user about the one-off model download before it starts.
+///
+/// hf-hub's progress bar hides itself when stderr is not a terminal, which is
+/// exactly the case under the MCP server and Claude Code hooks — the first run
+/// then looked like a multi-minute freeze with no output at all.
+fn announce_first_run() {
+    let cached = dirs::cache_dir()
+        .map(|d| d.join("huggingface/hub"))
+        .filter(|d| {
+            d.join("models--kyutai--pocket-tts-without-voice-cloning")
+                .is_dir()
+        })
+        .is_some();
+    if !cached {
+        eprintln!(
+            "First run: downloading the pocket-tts model (~226 MB, once). \
+             This can take a few minutes on a slow link. \
+             Cache: {}",
+            dirs::cache_dir()
+                .map(|d| d.join("huggingface/hub").display().to_string())
+                .unwrap_or_else(|| "~/.cache/huggingface/hub".to_string())
+        );
+    }
+}
+
 pub fn with_model<F, T>(f: F) -> Result<T>
 where
     F: FnOnce(&TTSModel) -> Result<T>,
@@ -99,7 +124,8 @@ where
                 "HF_TOKEN not set — using public pocket-tts weights (predefined voices only)."
             );
         }
-        eprintln!("Loading pocket-tts model {MODEL_VARIANT} (downloading if needed)...");
+        announce_first_run();
+        eprintln!("Loading pocket-tts model {MODEL_VARIANT}...");
         let variant = ensure_config(cloning)?;
         let variant = variant.to_str().context("config path is not valid UTF-8")?;
         let model = TTSModel::load(variant).context("failed to load pocket-tts model")?;
