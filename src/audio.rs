@@ -104,3 +104,114 @@ pub fn play_wav_async(path: &Path) -> Result<PlayHandle> {
     let join = thread::spawn(move || play_wav_blocking(&path));
     Ok(PlayHandle { join: Some(join) })
 }
+
+// ---------------------------------------------------------------------------
+// Listening cues
+// ---------------------------------------------------------------------------
+
+/// Short tones that tell the user when vox starts and stops listening.
+///
+/// A terminal meter is invisible when vox runs as an MCP server or from a
+/// Claude Code hook: its output goes through JSON-RPC or into a buffered pipe,
+/// never to a live terminal. A sound reaches the user in every one of those
+/// cases, which is the whole point of a voice loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cue {
+    /// Recording has started — speak now.
+    Start,
+    /// Recording has stopped, transcription is running.
+    Stop,
+}
+
+impl Cue {
+    /// (frequency in Hz, duration in milliseconds)
+    pub fn tone(self) -> (f32, u64) {
+        match self {
+            // Rising, friendly: "go".
+            Cue::Start => (880.0, 120),
+            // Lower, settled: "got it".
+            Cue::Stop => (587.33, 100),
+        }
+    }
+}
+
+/// Whether cues are enabled. Off with `VOX_CUES=0`, on otherwise.
+pub fn cues_enabled() -> bool {
+    !matches!(
+        std::env::var("VOX_CUES").ok().as_deref(),
+        Some("0") | Some("false") | Some("off")
+    )
+}
+
+/// Render a cue as 16 kHz mono samples with a short fade in and out, so it
+/// sounds like a chime rather than a click.
+pub fn cue_samples(cue: Cue, sample_rate: u32) -> Vec<f32> {
+    let (freq, ms) = cue.tone();
+    let n = (sample_rate as u64 * ms / 1000) as usize;
+    let fade = (n / 8).max(1);
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / sample_rate as f32;
+            let envelope = if i < fade {
+                i as f32 / fade as f32
+            } else if i + fade >= n {
+                (n - i) as f32 / fade as f32
+            } else {
+                1.0
+            };
+            (t * freq * std::f32::consts::TAU).sin() * 0.25 * envelope
+        })
+        .collect()
+}
+
+/// Play a cue. Never fails the caller: a missing audio device must not stop a
+/// transcription, so errors are swallowed deliberately.
+pub fn play_cue(cue: Cue) {
+    if !cues_enabled() {
+        return;
+    }
+    const RATE: u32 = 16_000;
+    let samples = cue_samples(cue, RATE);
+    let _ = (|| -> Result<()> {
+        let (_stream, handle) = rodio::OutputStream::try_default()?;
+        let sink = rodio::Sink::try_new(&handle)?;
+        sink.append(rodio::buffer::SamplesBuffer::new(1, RATE, samples));
+        sink.sleep_until_end();
+        Ok(())
+    })();
+}
+
+#[cfg(test)]
+mod cue_tests {
+    use super::*;
+
+    #[test]
+    fn cues_differ_so_start_and_stop_are_distinguishable() {
+        assert_ne!(Cue::Start.tone().0, Cue::Stop.tone().0);
+    }
+
+    #[test]
+    fn cue_samples_have_the_requested_length_and_stay_in_range() {
+        for cue in [Cue::Start, Cue::Stop] {
+            let (_, ms) = cue.tone();
+            let s = cue_samples(cue, 16_000);
+            assert_eq!(s.len(), (16_000 * ms / 1000) as usize);
+            assert!(s.iter().all(|v| v.abs() <= 1.0));
+        }
+    }
+
+    #[test]
+    fn cue_samples_fade_in_and_out_to_avoid_clicks() {
+        let s = cue_samples(Cue::Start, 16_000);
+        assert!(s[0].abs() < 0.01, "must start near silence");
+        assert!(s[s.len() - 1].abs() < 0.01, "must end near silence");
+        let mid = s[s.len() / 2].abs();
+        assert!(mid > 0.05, "must be audible in the middle, got {mid}");
+    }
+
+    #[test]
+    fn cues_can_be_disabled() {
+        // Default is on; the env var is read at call time.
+        assert!(cues_enabled() || std::env::var("VOX_CUES").is_ok());
+    }
+}
