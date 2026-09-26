@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.0](https://github.com/rtk-ai/vox/compare/v0.16.0...v1.0.0) (2026-09-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* the qwen (MLX-Audio) and voxtream backends are removed. Both required a manual Python setup; qwen-native runs the same Qwen3-TTS family on candle, in Rust, on all three platforms with voice cloning from a 3-second reference.
+
+### Features
+
+* drop the Python backends, vox is now pure Rust ([#81](https://github.com/rtk-ai/vox/issues/81)) ([a7726b0](https://github.com/rtk-ai/vox/commit/a7726b0219767eb2f24c10db919ed60f76c1b7e2))
+* **mic:** scale the VAD to the real input level, normalise, add audio cues ([#79](https://github.com/rtk-ai/vox/issues/79)) ([c910ebc](https://github.com/rtk-ai/vox/commit/c910ebc709cf3ff74a9c8f79fe11b990e675b28e))
+
+
+### Bug Fixes
+
+* **pack:** validate pack names before they reach the filesystem ([#80](https://github.com/rtk-ai/vox/issues/80)) ([3f77126](https://github.com/rtk-ai/vox/commit/3f77126cd9f1402c482f01981a0ac1f7c66e17df))
+
 ## [0.16.0](https://github.com/rtk-ai/vox/compare/v0.15.1...v0.16.0) (2026-09-25)
 
 
