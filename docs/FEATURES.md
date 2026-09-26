@@ -21,7 +21,7 @@ echo "Texte pipe" | vox             # Lecture depuis stdin
 | `-r` | Debit (mots/min, backend say) | `-r 200` |
 | `--gender` | Genre vocal | `--gender feminine` |
 | `--style` | Intonation | `--style warm`, `--style energetic` |
-| `-m` | Modele TTS | `-m mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit` |
+| `-m` | Modele TTS | `-m Qwen/Qwen3-TTS-12Hz-1.7B-Base` |
 
 ### Langues supportees
 
@@ -83,7 +83,7 @@ Priorite de resolution : **flags CLI / params MCP > preferences DB > valeurs par
 | `rate` | Entier positif (mots/min, ex: `150`, `200`) | Parse en `u32`, erreur si non-numerique |
 | `gender` | `feminine`, `masculine` | Parse via `Gender::parse()`, erreur sinon |
 | `style` | `calm`, `energetic`, `warm`, `authoritative`, `cheerful`, `serious` | Parse via `IntonationStyle::parse()`, erreur sinon |
-| `model` | ID de modele HuggingFace (texte libre, ex: `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit`) | Aucune (le backend valide au chargement) |
+| `model` | ID de modele HuggingFace (texte libre, ex: `Qwen/Qwen3-TTS-12Hz-1.7B-Base`) | Aucune (le backend valide au chargement) |
 | `pack` | Nom de pack installe (texte libre) | Aucune (verifie a l'utilisation) |
 
 ### Matrice des capacites par backend

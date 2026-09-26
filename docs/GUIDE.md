@@ -25,7 +25,6 @@ cargo install --path . --features cuda
 
 | Composant | Pour quoi | Installation |
 |-----------|----------|--------------|
-| `mlx-audio` | Backend qwen (macOS) | `uv pip install mlx-audio` |
 
 ## Demarrage rapide
 
@@ -185,10 +184,10 @@ Pour les backends `qwen` et `qwen-native`, il est possible d'utiliser un modele 
 
 ```bash
 # Via CLI
-vox -b qwen-native -m "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit" "Texte"
+vox -b qwen-native -m "Qwen/Qwen3-TTS-12Hz-1.7B-Base" "Texte"
 
 # Via preference persistante
-vox config set model "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit"
+vox config set model "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 ```
 
 Les modeles sont telecharges automatiquement depuis HuggingFace Hub au premier appel. Le modele par defaut de `qwen-native` est `Qwen/Qwen3-TTS-12Hz-0.6B-Base`.

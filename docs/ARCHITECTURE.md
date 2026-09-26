@@ -55,9 +55,10 @@ src/
 | Backend | Plateforme | Dependance | Latence | Voice cloning |
 |---------|-----------|------------|---------|---------------|
 | `say` | macOS uniquement | Aucune (systeme) | ~100ms | Non |
-| `qwen` | macOS (Apple Silicon) | `mlx-audio` (Python) | ~5-15s (cold) / ~1s (warm) | Oui |
-| `qwen-native` | Toutes | Aucune (Rust pur) | ~3-10s | Oui |
-| `kokoro` | Toutes | Aucune (Rust pur) | ~2-5s | Non |
+| `piper` | Toutes | Aucune (Rust pur) | <1s | Non |
+| `pocket` | Toutes | Aucune (Rust pur) | ~2s | Oui (HF_TOKEN) |
+| `qwen-native` | Toutes | Aucune (Rust pur) | ~3s a chaud | Oui |
+| `kokoro` | macOS (opt-in) | Aucune (Rust pur) | ~2-5s | Non |
 
 ### Trait TtsBackend
 
