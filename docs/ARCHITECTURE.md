@@ -7,14 +7,18 @@ vox est un CLI TTS cross-platform ecrit en Rust. Il transforme du texte en parol
 ```
                           vox (Rust)
                               |
-            +---------+-------+-------+---------+
-            |         |               |         |
-          say      qwen          qwen-native  kokoro
-       (macOS)  (MLX/Python)    (pure Rust)  (pure Rust)
-       native   Apple Silicon   CPU/Metal    CPU/GPU
-                                /CUDA
-                    |
-                  rodio (audio playback cross-platform)
+              +---------------+---------------+
+              |                               |
+          speak (TTS)                     hear (STT)
+              |                               |
+   +------+---+---+--------+-------+       Whisper
+   |      |       |        |       |      (candle)
+  say   piper  pocket  qwen-native kokoro  99 langues
+ (macOS) (ONNX) (candle) (candle)  (ONNX)  CPU/Metal/CUDA
+ natif    CPU    CPU    CPU/Metal   opt-in
+                         /CUDA
+              |                               |
+            rodio (lecture)            cpal (capture)
 ```
 
 ## Modules source
@@ -26,13 +30,16 @@ src/
   mcp.rs          Serveur MCP JSON-RPC stdio (14 tools)
   backend/
     mod.rs        Trait TtsBackend + dispatch get_backend()
-    say.rs        Backend macOS natif (NSSSpeechSynthesizer via /usr/bin/say)
-    qwen_native.rs Backend candle/Rust (Qwen3-TTS, cross-platform)
-    kokoro.rs     Backend Kokoro-TTS (pure Rust, cross-platform)
+    say.rs        Backend macOS natif (NSSpeechSynthesizer via /usr/bin/say)
+    piper.rs      Backend Piper (ONNX via ort, 50+ langues, espeak-ng embarque)
+    pocket.rs     Backend Kyutai pocket-tts (candle, 100M, CPU temps reel)
+    qwen_native.rs Backend candle/Rust (Qwen3-TTS, cross-platform, clonage)
+    kokoro.rs     Backend Kokoro-TTS (ONNX Rust, opt-in via feature)
   config.rs       Chemins config, constantes, enums (Gender, IntonationStyle)
   db.rs           SQLite (rusqlite) — preferences, clones, usage logs, stats
   init.rs         Auto-configuration pour 14 outils IA
   input.rs        Lecture texte (args, stdin, pipe)
+  lang.rs         Resolution de langue (drapeau > preference > locale systeme)
   clone.rs        Voice cloning — validation audio, enregistrement micro
   pack.rs         Sound packs (peon-ping compatible)
   audio.rs        Playback audio via rodio

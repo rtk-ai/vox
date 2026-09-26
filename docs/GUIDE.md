@@ -161,13 +161,6 @@ vox hear -l fr
 - Pas de voice cloning
 - Modele ONNX ~80 MB dans `~/.config/vox/kokoro/`
 
-### qwen (MLX Python, macOS)
-- Qualite neurale superieure
-- Voice cloning supporte (via `ref_audio` + `ref_text`)
-- Necessite `mlx-audio` + Apple Silicon
-- ~1-2s warm / ~5-15s cold start
-- Pipeline de chunking pour les textes longs (overlap generation/playback)
-
 ### qwen-native (Rust pur)
 - Meme modele Qwen3-TTS mais en Rust (candle)
 - Voice cloning supporte
@@ -198,7 +191,7 @@ vox -b qwen-native -m "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit" "Texte"
 vox config set model "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit"
 ```
 
-Les modeles sont telecharges automatiquement depuis HuggingFace Hub au premier appel. Le modele par defaut de `qwen-native` est `Qwen/Qwen3-TTS-12Hz-0.6B-Base`. Le modele par defaut de `qwen` (MLX) est `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16`.
+Les modeles sont telecharges automatiquement depuis HuggingFace Hub au premier appel. Le modele par defaut de `qwen-native` est `Qwen/Qwen3-TTS-12Hz-0.6B-Base`.
 
 ### Arborescence des donnees locales
 

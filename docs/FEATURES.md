@@ -88,18 +88,18 @@ Priorite de resolution : **flags CLI / params MCP > preferences DB > valeurs par
 
 ### Matrice des capacites par backend
 
-| Capacite | `say` | `kokoro` | `qwen` | `qwen-native` |
-|----------|-------|----------|--------|----------------|
-| Voice cloning | Non | Non | Oui | Oui |
-| Rate (debit) | Oui (`-r`) | Non | Non | Non |
-| Gender hint | Non | Non | Oui | Oui |
-| Style hint | Non | Non | Oui | Oui |
-| Choix de voix | Oui (voix Apple) | Oui (prefixe `xx_nom`) | Oui (Chelsie, Aidan, Luna, Ryan) | Non (clones uniquement) |
-| Choix de modele | Non | Non | Non | Oui |
-| Langues | Toutes (via voix) | en, fr, ja, zh, ko, hi, it, pt, de, es | en, fr, es, de, it, pt, zh, ja, ko, ru, ar, nl | en, fr, es, de, it, pt, zh, ja, ko, ru |
-| Plateforme | macOS | Toutes | macOS (Apple Silicon) | Toutes |
-| GPU | Non | Non | Non (CPU MLX) | Metal (macOS) / CUDA (Linux) |
-| Dependance externe | Aucune | `kokoro-onnx`, `soundfile` (Python) | `mlx-audio` (Python) | Aucune (Rust pur) |
+| Capacite | `say` | `piper` | `pocket` | `kokoro` | `qwen-native` |
+|----------|-------|---------|----------|----------|----------------|
+| Voice cloning | Non | Non | Oui (HF_TOKEN) | Non | Oui |
+| Rate (debit) | Oui (`-r`) | Non | Non | Non | Non |
+| Gender hint | Non | Non | Non | Non | Non (accepte, sans effet) |
+| Style hint | Non | Non | Non | Non | Non (accepte, sans effet) |
+| Choix de voix | Oui (voix Apple) | Par langue | 8 voix predefinies | Oui (prefixe `xx_nom`) | Non (clones uniquement) |
+| Choix de modele | Non | Non | Non | Non | Oui |
+| Langues | Toutes (via voix) | 50+ (voix rhasspy) | en (checkpoint embarque) | en, fr, ja, zh, ko, hi, it, pt, de, es | zh, en, ja, ko, de, fr, ru, pt, es, it |
+| Plateforme | macOS | Toutes | Toutes | macOS (opt-in) | Toutes |
+| GPU | Non | Non | Non (CPU par conception) | Non | Metal (macOS) / CUDA (Linux) |
+| Dependance externe | Aucune | Aucune (Rust pur) | Aucune (Rust pur) | Aucune (Rust pur) | Aucune (Rust pur) |
 
 ## Sound packs
 
