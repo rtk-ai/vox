@@ -39,7 +39,8 @@ pub fn record_clone(name: &str, duration: u32) -> Result<String> {
     let output_path = dir.join(format!("{name}.wav"));
     let output_str = output_path.to_string_lossy().to_string();
 
-    eprintln!("Recording {duration}s of audio... Speak now!");
+    eprintln!("Recording {duration}s of audio.");
+    eprintln!("A beep means start speaking; a second, lower beep means stop.");
     let (samples, rate) =
         crate::mic::record_native(&crate::mic::RecordOptions::for_duration(duration as f64))?;
     if samples.is_empty() {

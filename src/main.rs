@@ -53,6 +53,10 @@ struct Cli {
     #[arg(long, default_value = "1.0", value_parser = parse_volume)]
     volume: f32,
 
+    /// Write the audio to a WAV file instead of playing it
+    #[arg(short = 'o', long, value_name = "FILE")]
+    output: Option<std::path::PathBuf>,
+
     /// List available voices for the selected backend
     #[arg(long)]
     list_voices: bool,
@@ -116,7 +120,7 @@ enum Commands {
         /// Language code for transcription (default: auto-detect)
         #[arg(short = 'l', long)]
         lang: Option<String>,
-        /// Whisper model repo (default: openai/whisper-small, or VOX_STT_MODEL; try openai/whisper-large-v3-turbo with a GPU)
+        /// Whisper model repo (default: openai/whisper-base; see `vox config set stt_model`, VOX_STT_MODEL or models.toml)
         #[arg(short = 'm', long)]
         model: Option<String>,
         /// Transcribe this WAV file instead of recording from the microphone
@@ -333,6 +337,7 @@ fn handle_speak(cli: Cli) -> Result<()> {
         ref_text,
         model,
         volume: cli.volume,
+        output: cli.output.clone(),
     };
 
     let start = Instant::now();
@@ -342,7 +347,10 @@ fn handle_speak(cli: Cli) -> Result<()> {
         effective_backend.as_str(),
         "qwen-native" | "kokoro" | "pocket"
     );
-    if is_heavy && daemon::is_running() {
+    // Saving bypasses the daemon on purpose: the daemon renders in its own
+    // process, and a relative path there would resolve against its working
+    // directory, not the user's.
+    if is_heavy && opts.output.is_none() && daemon::is_running() {
         daemon::speak_via_daemon(&text, &effective_backend, &opts)?;
     } else {
         backend.speak(&text, &opts)?;
@@ -436,6 +444,10 @@ fn handle_config(action: ConfigAction) -> Result<()> {
             );
             println!("style:   {}", prefs.style.as_deref().unwrap_or("(default)"));
             println!("model:   {}", prefs.model.as_deref().unwrap_or("(default)"));
+            println!(
+                "stt_model: {}",
+                prefs.stt_model.as_deref().unwrap_or("(default)")
+            );
             println!("pack:    {}", prefs.pack.as_deref().unwrap_or("(none)"));
         }
         ConfigAction::Set { key, value } => {

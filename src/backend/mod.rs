@@ -24,6 +24,8 @@ pub struct SpeakOptions {
     pub ref_text: Option<String>,
     pub model: Option<String>,
     pub volume: f32,
+    /// Write the rendered audio here instead of playing it.
+    pub output: Option<std::path::PathBuf>,
 }
 
 impl Default for SpeakOptions {
@@ -38,6 +40,7 @@ impl Default for SpeakOptions {
             ref_text: None,
             model: None,
             volume: 1.0,
+            output: None,
         }
     }
 }

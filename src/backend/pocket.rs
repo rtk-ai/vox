@@ -208,7 +208,7 @@ impl TtsBackend for PocketBackend {
         })?;
 
         audio::apply_wav_gain(&wav_path, opts.volume)?;
-        audio::play_wav_blocking(&wav_path)?;
+        audio::deliver(&wav_path, opts.output.as_deref())?;
 
         let _ = std::fs::remove_file(&wav_path);
 

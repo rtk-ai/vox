@@ -59,6 +59,25 @@ pub fn play_wav_blocking(path: &Path) -> Result<()> {
     play_audio_blocking(path)
 }
 
+/// Where a backend's rendered audio should go: to the speakers, or to a file.
+///
+/// Every backend renders a WAV before it plays anything, so saving is just a
+/// different destination for the same bytes — no re-encoding, no second render.
+pub fn deliver(rendered: &Path, destination: Option<&Path>) -> Result<()> {
+    let Some(out) = destination else {
+        return play_wav_blocking(rendered);
+    };
+    if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create output directory: {}", parent.display()))?;
+    }
+    // Rename would fail across filesystems (temp dir vs. target), so copy.
+    std::fs::copy(rendered, out)
+        .with_context(|| format!("Failed to write audio to {}", out.display()))?;
+    eprintln!("Saved audio to {}", out.display());
+    Ok(())
+}
+
 /// Play an audio file (WAV, MP3, OGG, FLAC) and block until playback finishes.
 pub fn play_audio_blocking(path: &Path) -> Result<()> {
     let (_stream, stream_handle) =
@@ -179,6 +198,51 @@ pub fn play_cue(cue: Cue) {
         sink.sleep_until_end();
         Ok(())
     })();
+}
+
+#[cfg(test)]
+mod deliver_tests {
+    use super::*;
+
+    fn tiny_wav(path: &Path) {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut w = hound::WavWriter::create(path, spec).unwrap();
+        for i in 0..160 {
+            w.write_sample((i % 32) as i16).unwrap();
+        }
+        w.finalize().unwrap();
+    }
+
+    #[test]
+    fn deliver_writes_the_file_byte_for_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = dir.path().join("rendered.wav");
+        tiny_wav(&rendered);
+
+        // A missing parent directory is created, not an error.
+        let out = dir.path().join("nested/dir/out.wav");
+        deliver(&rendered, Some(out.as_path())).unwrap();
+
+        assert_eq!(
+            std::fs::read(&rendered).unwrap(),
+            std::fs::read(&out).unwrap(),
+            "saving must not re-encode the rendered audio"
+        );
+    }
+
+    #[test]
+    fn deliver_refuses_an_unwritable_destination_instead_of_playing() {
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = dir.path().join("rendered.wav");
+        tiny_wav(&rendered);
+        // A directory as the destination: the copy has to fail loudly.
+        assert!(deliver(&rendered, Some(dir.path())).is_err());
+    }
 }
 
 #[cfg(test)]

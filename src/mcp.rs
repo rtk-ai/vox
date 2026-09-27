@@ -394,7 +394,7 @@ fn tool_definitions() -> Value {
                     },
                     "model": {
                         "type": "string",
-                        "description": "Whisper model repo on Hugging Face (default: openai/whisper-small or VOX_STT_MODEL; openai/whisper-large-v3-turbo for best quality on GPU)"
+                        "description": "Whisper model repo on Hugging Face (default: openai/whisper-base, or the stt_model preference / VOX_STT_MODEL / models.toml; openai/whisper-large-v3-turbo for best quality on GPU)"
                     },
                     "file": {
                         "type": "string",
@@ -548,6 +548,9 @@ fn tool_speak(args: &Value) -> ToolResult {
         ref_text,
         model: None,
         volume,
+        // Deliberately not exposed over MCP: an agent-supplied path would be
+        // an arbitrary file write. Saving stays a local CLI concern.
+        output: None,
     };
 
     let start = std::time::Instant::now();

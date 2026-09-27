@@ -19,6 +19,14 @@ impl SayBackend {
         if let Some(rate) = opts.rate {
             cmd.arg("-r").arg(rate.to_string());
         }
+        if let Some(ref out) = opts.output {
+            // say writes AIFF by default; ask for 16-bit PCM so a .wav name
+            // holds real WAVE data instead of an AIFF with the wrong suffix.
+            cmd.arg("-o").arg(out);
+            if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav")) {
+                cmd.arg("--file-format=WAVE").arg("--data-format=LEI16@22050");
+            }
+        }
         cmd.arg(text);
         cmd
     }
@@ -34,6 +42,9 @@ impl TtsBackend for SayBackend {
         let status = cmd.status().context("Failed to run /usr/bin/say")?;
         if !status.success() {
             anyhow::bail!("say exited with status {status}");
+        }
+        if let Some(ref out) = opts.output {
+            eprintln!("Saved audio to {}", out.display());
         }
         Ok(())
     }

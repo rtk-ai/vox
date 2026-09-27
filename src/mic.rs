@@ -378,6 +378,9 @@ pub fn record(opts: &RecordOptions) -> Result<Vec<f32>> {
 /// Returns `(mono samples, sample_rate)`.
 pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
     let errored = Arc::new(AtomicBool::new(false));
+    // Beep before the stream opens, so the cue itself is never captured —
+    // it would otherwise land in the noise floor and in cloned audio.
+    crate::audio::play_cue(crate::audio::Cue::Start);
     let cap = start_capture(Arc::clone(&errored))?;
     let started = Instant::now();
     let poll = Duration::from_millis(VAD_FRAME_MS as u64);
@@ -398,7 +401,6 @@ pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
             timeout,
             max_wait,
         } => {
-            crate::audio::play_cue(crate::audio::Cue::Start);
             let frame_len = (cap.rate as usize * VAD_FRAME_MS) / 1000;
             let silence_frames = ((silence * 1000.0) / VAD_FRAME_MS as f64).ceil() as usize;
             let debug = std::env::var_os("VOX_VAD_DEBUG").is_some();
@@ -479,8 +481,13 @@ pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
         }
     }
 
-    let raw = cap.buf.lock().map_err(|_| anyhow!("mic buffer poisoned"))?;
-    Ok((raw.clone(), cap.rate))
+    let samples = {
+        let raw = cap.buf.lock().map_err(|_| anyhow!("mic buffer poisoned"))?;
+        raw.clone()
+    };
+    // After the buffer is copied, so the beep stays out of the recording.
+    crate::audio::play_cue(crate::audio::Cue::Stop);
+    Ok((samples, cap.rate))
 }
 
 #[cfg(test)]

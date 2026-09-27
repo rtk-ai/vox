@@ -305,6 +305,9 @@ async fn route(
                 ref_text: req.ref_text.clone(),
                 model: req.model.clone(),
                 volume: req.volume,
+                // The daemon plays; saving to a file is handled in-process by
+                // the CLI, which never routes an --output call here.
+                output: None,
             };
             let backend_name = req.backend.clone();
             let text = req.text.clone();

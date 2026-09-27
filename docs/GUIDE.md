@@ -40,6 +40,9 @@ echo "Message important" | vox
 
 # Voir les voix
 vox --list-voices
+
+# Ecrire un fichier au lieu de parler
+vox -o note.wav "Texte a enregistrer"
 ```
 
 ## Configuration avec un assistant IA
@@ -103,8 +106,14 @@ vox clone record mavoix --duration 10 --text "Ce que je dis"
 vox -v mavoix "Ceci parle avec ma voix clonee"
 ```
 
+Deux bips encadrent l'enregistrement : aigu au demarrage, plus grave a l'arret.
+Ils sont joues en dehors de la capture, donc absents du clone. `VOX_CUES=0` les
+desactive.
+
 Pour de meilleurs resultats :
-- Enregistrement de 5-15 secondes
+- Enregistrement de 5-8 secondes : au-dela, la synthese devient nettement plus
+  lente (mesure sur M2 : reference de 6 s, 21 s de generation ; reference de
+  14 s, 11 minutes)
 - Environnement calme, sans bruit de fond
 - Parler naturellement, pas trop vite
 - Fournir la transcription exacte avec `--text`
@@ -177,20 +186,53 @@ vox hear -l fr
 | `VOX_CONFIG_DIR` | Repertoire de configuration alternatif | `~/.config/vox/` |
 | `VOX_DB_PATH` | Chemin de base de donnees alternatif | `~/.config/vox/vox.db` |
 | `ANTHROPIC_API_KEY` | Cle API Claude (requis pour `vox chat`) | Aucun |
+| `VOX_STT_MODEL` | Repo Whisper pour la transcription | `[whisper] model_id` de models.toml |
 
 ### Modeles personnalises
 
-Pour les backends `qwen` et `qwen-native`, il est possible d'utiliser un modele different :
+Chaque modele se choisit a quatre niveaux, du plus precis au plus general :
+
+1. le drapeau de l'appel (`-m` / `--model`)
+2. la variable d'environnement (STT uniquement : `VOX_STT_MODEL`)
+3. la preference stockee (`vox config set ...`)
+4. `models.toml` — les defauts compiles dans le binaire, surchargeables en
+   placant votre propre fichier dans `~/.config/vox/models.toml`
+
+L'environnement passe avant la preference pour qu'un `VOX_STT_MODEL=...` reste
+efficace meme quand une preference a deja ete enregistree.
+
+Pour la synthese (`qwen-native`) :
 
 ```bash
-# Via CLI
 vox -b qwen-native -m "Qwen/Qwen3-TTS-12Hz-1.7B-Base" "Texte"
-
-# Via preference persistante
 vox config set model "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 ```
 
-Les modeles sont telecharges automatiquement depuis HuggingFace Hub au premier appel. Le modele par defaut de `qwen-native` est `Qwen/Qwen3-TTS-12Hz-0.6B-Base`.
+Pour la transcription (Whisper) :
+
+```bash
+vox hear -m openai/whisper-small
+vox config set stt_model openai/whisper-small
+```
+
+Et le fichier correspondant :
+
+```toml
+[qwen-native]
+model_id = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+
+[whisper]
+model_id = "openai/whisper-base"
+```
+
+Les modeles sont telecharges automatiquement depuis HuggingFace Hub au premier
+appel. Changer de modele en cours de route n'exige pas de redemarrer le serveur
+MCP : le modele resident est remplace quand l'identifiant demande differe.
+
+Tailles Whisper mesurees a chaud sur 11,85 s de francais (Apple M2) :
+`tiny` 0,93 s / 350 Mo — `base` 1,52 s / 631 Mo (defaut) — `small` 5,07 s /
+1,98 Go. `base` est 3x plus rapide et 3x plus leger que `small` pour une faute
+de moins sur une phrase de 30 mots.
 
 ### Arborescence des donnees locales
 

@@ -22,6 +22,21 @@ echo "Texte pipe" | vox             # Lecture depuis stdin
 | `--gender` | Genre vocal | `--gender feminine` |
 | `--style` | Intonation | `--style warm`, `--style energetic` |
 | `-m` | Modele TTS | `-m Qwen/Qwen3-TTS-12Hz-1.7B-Base` |
+| `-o` | Ecrire un WAV au lieu de parler | `-o note.wav` |
+
+### Enregistrer dans un fichier
+
+```bash
+vox -o note.wav "Texte a enregistrer"
+vox -b qwen-native -v mavoix -o note.wav "Avec un clone"
+ffmpeg -i note.wav -c:a libopus -b:a 32k note.ogg   # vocal WhatsApp, par exemple
+```
+
+Chaque backend rend un WAV avant de le jouer : `-o` ecrit ces memes octets au
+lieu de les envoyer aux haut-parleurs, sans reencodage. Le drapeau est reserve
+au CLI — il n'est volontairement pas expose en MCP, ou un chemin fourni par
+l'agent serait une ecriture de fichier arbitraire. Un appel avec `-o` ne passe
+pas par le daemon, dont le repertoire de travail n'est pas le votre.
 
 ### Langues supportees
 
@@ -52,6 +67,16 @@ vox clone remove patrick
 
 Formats audio acceptes : wav, mp3, flac, ogg, m4a.
 
+Pendant `vox clone record` et `vox hear`, deux bips encadrent la prise : un bip
+aigu (880 Hz) juste avant l'ouverture du micro, un bip plus grave (587 Hz) a
+l'arret. Ils sont joues hors de l'enregistrement, donc ils ne se retrouvent ni
+dans le clone ni dans le bruit de fond mesure. `VOX_CUES=0` les desactive.
+
+Gardez la reference courte : le temps de synthese depend beaucoup de sa duree.
+Mesure sur Apple M2 avec `Qwen3-TTS-12Hz-0.6B-Base`, meme phrase generee :
+reference de 6 s a 24 kHz, 21 s ; reference de 14 s a 48 kHz, 11 minutes.
+Cinq a huit secondes de parole nette a 24 kHz est le bon compromis.
+
 Le voice cloning bascule automatiquement sur le backend `qwen` (macOS) ou `qwen-native` (autres) car `say` et `kokoro` ne supportent pas le cloning.
 
 ## Configuration
@@ -67,11 +92,13 @@ vox config set gender feminine     # Genre vocal
 vox config set style warm          # Style d'intonation
 vox config set rate 180            # Debit (say uniquement)
 vox config set model <model_id>    # Modele TTS specifique
+vox config set stt_model <repo>    # Modele Whisper pour la transcription
 vox config set pack peon           # Sound pack actif
 vox config reset                   # Reinitialiser tout
 ```
 
-Priorite de resolution : **flags CLI / params MCP > preferences DB > valeurs par defaut**.
+Priorite de resolution : **flags CLI / params MCP > variables d'environnement
+> preferences DB > models.toml > valeurs par defaut compilees**.
 
 ### Reference des cles de preferences
 
@@ -208,7 +235,7 @@ Le serveur est normalement lance automatiquement par l'outil IA. Il n'est pas ne
 | `vox_pack_set` | Active un sound pack | **`name`** (requis, string) : nom du pack installe. |
 | `vox_pack_play` | Joue un son d'un pack | `category` (string, defaut: "greeting") : greeting/acknowledge/complete/error/permission/resource_limit/annoyed. `pack` (string) : nom du pack (utilise le pack actif si omis). |
 | `vox_pack_remove` | Supprime un sound pack | **`name`** (requis, string) : nom du pack. Si le pack supprime etait actif, le pack actif est remis a vide. |
-| `vox_hear` | Enregistre et transcrit (STT) | `lang` (string, defaut: auto-detection) : code langue Whisper. `timeout` (integer, defaut: 30) : duree max en secondes. `silence` (number, defaut: 2.0) : secondes de silence avant arret. `model` (string) : repo Whisper (defaut `openai/whisper-small`). `file` (string) : fichier WAV a transcrire au lieu du micro. Toutes plateformes. |
+| `vox_hear` | Enregistre et transcrit (STT) | `lang` (string, defaut: auto-detection) : code langue Whisper. `timeout` (integer, defaut: 30) : duree max en secondes. `silence` (number, defaut: 2.0) : secondes de silence avant arret. `model` (string) : repo Whisper (defaut `openai/whisper-base`). `file` (string) : fichier WAV a transcrire au lieu du micro. Toutes plateformes. |
 
 Les parametres en **gras** sont requis. Le serveur renvoie `isError: true` si un parametre requis est manquant ou invalide.
 
@@ -228,7 +255,7 @@ vox hear -f enregistrement.wav             # Transcrire un fichier au lieu du mi
 vox_hear                           # Utilise par l'assistant IA
 ```
 
-Variables : `VOX_STT_MODEL` (repo Whisper, defaut `openai/whisper-small` ~1 Go RAM), `VOX_VAD_THRESHOLD` (seuil RMS minimal du detecteur de silence, 0-1, defaut 0.0125 ; le seuil effectif s'adapte au bruit ambiant mesure sur les 300 premieres ms), `VOX_VAD_DEBUG=1` (affiche les niveaux RMS et le seuil retenu).
+Variables : `VOX_STT_MODEL` (repo Whisper, defaut `openai/whisper-base` ~630 Mo RAM), `VOX_VAD_THRESHOLD` (seuil RMS minimal du detecteur de silence, 0-1, defaut 0.0125 ; le seuil effectif s'adapte au bruit ambiant mesure sur les 300 premieres ms), `VOX_VAD_DEBUG=1` (affiche les niveaux RMS et le seuil retenu).
 Aucun prerequis externe : la capture micro utilise cpal.
 
 ## Mode conversation (macOS)

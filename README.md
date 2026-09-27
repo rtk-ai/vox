@@ -222,6 +222,7 @@ vox config set lang fr
 vox config set voice Chelsie
 vox config set gender feminine
 vox config set style warm
+vox config set stt_model openai/whisper-base
 vox config reset
 ```
 
@@ -233,6 +234,19 @@ vox pack set peon                  # Activate it
 vox pack play greeting             # Play a sound
 vox pack list                      # List available packs
 ```
+
+## Save to a file instead of speaking
+
+```bash
+vox -o note.wav "Texte a enregistrer"          # any backend
+vox -b qwen-native -v mavoix -o note.wav "..."  # with a voice clone
+ffmpeg -i note.wav -c:a libopus -b:a 32k note.ogg   # e.g. for a WhatsApp voice note
+```
+
+Every backend renders a WAV before playing it, so `-o` costs nothing extra: it
+writes those same bytes instead of sending them to the speakers. `--output` is
+CLI-only — it is deliberately not exposed over MCP, where an agent-supplied
+path would be an arbitrary file write.
 
 ## Speech-to-text (all platforms)
 
@@ -246,9 +260,30 @@ vox hear -m openai/whisper-large-v3-turbo  # Best quality (GPU + 16 GB RAM recom
 vox hear -f recording.wav                  # Transcribe a file instead of the mic
 ```
 
+Model size is a real tradeoff. Measured warm on 11.85 s of French speech,
+Apple M2 (`tiny` / `base` / `small`):
+
+| Model | Time | RAM | On disk | Quality |
+|-------|------|-----|---------|---------|
+| `openai/whisper-tiny` | 0.93 s | 350 MB | 164 MB | roughest |
+| `openai/whisper-base` | 1.52 s | 631 MB | 292 MB | the default |
+| `openai/whisper-small` | 5.07 s | 1.98 GB | 1.05 GB | one fewer mistake in 30 words |
+| `openai/whisper-large-v3-turbo` | not measured | ~3.5 GB | not measured | best, GPU recommended |
+
+`base` is the default because it is 3x faster and 3x lighter than `small` for
+one fewer mistake on a 30-word sentence. Pick another one for good, in order of
+precedence:
+
+```bash
+vox hear -m openai/whisper-small                # 1. this call only
+export VOX_STT_MODEL=openai/whisper-small       # 2. this shell
+vox config set stt_model openai/whisper-small   # 3. stored preference
+# 4. [whisper] model_id in ~/.config/vox/models.toml
+```
+
 | Env var | Description |
 |---------|-------------|
-| `VOX_STT_MODEL` | Whisper repo (default `openai/whisper-small`, ~1 GB RAM; `openai/whisper-large-v3-turbo` ~3.5 GB) |
+| `VOX_STT_MODEL` | Whisper repo, overriding `models.toml` (default `openai/whisper-base`, ~630 MB RAM; `openai/whisper-large-v3-turbo` ~3.5 GB) |
 | `VOX_VAD_THRESHOLD` | Minimum RMS speech threshold, 0-1 (default 0.0125; adapts to ambient noise) |
 | `VOX_VAD_DEBUG` | Set to `1` to print RMS levels and the chosen threshold |
 
