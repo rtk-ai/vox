@@ -2,11 +2,39 @@
 
 use vox::stt;
 
+/// Resolution order, in one test because these assertions share process-wide
+/// environment variables and would race if split across parallel tests.
+///
+/// The default is `base`, chosen on measurements (see models.toml): with no
+/// flag, no env var, no preference and no user models.toml the resolver has to
+/// land on it, so the bundled TOML and the Rust fallback cannot drift apart.
+/// And the env var has to beat a stored preference, otherwise `vox config set
+/// stt_model` would permanently lock out `VOX_STT_MODEL=...`.
 #[test]
-fn default_model_is_multilingual_small() {
-    assert_eq!(stt::DEFAULT_MODEL, "openai/whisper-small");
+fn model_resolution_order() {
+    assert_eq!(stt::DEFAULT_MODEL, "openai/whisper-base");
     assert_eq!(stt::QUALITY_MODEL, "openai/whisper-large-v3-turbo");
+
+    // An empty config dir: no user models.toml, no database, no preference.
+    let empty = tempfile::tempdir().unwrap();
+    // Safety: no other test in this binary reads these variables — the rest
+    // resolve their model from an explicit override, which short-circuits.
+    unsafe {
+        std::env::set_var("VOX_CONFIG_DIR", empty.path());
+        std::env::remove_var("VOX_DB_PATH");
+        std::env::remove_var("VOX_STT_MODEL");
+    }
     assert_eq!(stt::model_id(None), stt::DEFAULT_MODEL);
+
+    unsafe { std::env::set_var("VOX_STT_MODEL", "openai/whisper-tiny") };
+    assert_eq!(stt::model_id(None), "openai/whisper-tiny");
+    assert_eq!(
+        stt::model_id(Some("openai/whisper-small")),
+        "openai/whisper-small",
+        "an explicit flag must outrank the environment"
+    );
+
+    unsafe { std::env::remove_var("VOX_STT_MODEL") };
 }
 
 #[test]

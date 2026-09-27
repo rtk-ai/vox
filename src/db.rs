@@ -17,6 +17,7 @@ pub struct Preferences {
     pub gender: Option<String>,
     pub style: Option<String>,
     pub model: Option<String>,
+    pub stt_model: Option<String>,
     pub pack: Option<String>,
 }
 
@@ -86,10 +87,21 @@ fn migrate(conn: &Connection) -> Result<()> {
         );",
     )?;
 
-    // Add pack column if it doesn't exist (migration for existing DBs)
-    let has_pack = conn.prepare("SELECT pack FROM preferences LIMIT 0").is_ok();
-    if !has_pack {
-        conn.execute_batch("ALTER TABLE preferences ADD COLUMN pack TEXT;")?;
+    // Columns added after the initial schema. Each is probed rather than
+    // versioned because the table has always been migrated this way.
+    for (column, ddl) in [
+        ("pack", "ALTER TABLE preferences ADD COLUMN pack TEXT;"),
+        (
+            "stt_model",
+            "ALTER TABLE preferences ADD COLUMN stt_model TEXT;",
+        ),
+    ] {
+        let exists = conn
+            .prepare(&format!("SELECT {column} FROM preferences LIMIT 0"))
+            .is_ok();
+        if !exists {
+            conn.execute_batch(ddl)?;
+        }
     }
 
     Ok(())
@@ -99,7 +111,8 @@ fn migrate(conn: &Connection) -> Result<()> {
 
 pub fn get_preferences(conn: &Connection) -> Result<Preferences> {
     let mut stmt = conn.prepare(
-        "SELECT backend, voice, lang, rate, gender, style, model, pack FROM preferences WHERE id = 1",
+        "SELECT backend, voice, lang, rate, gender, style, model, stt_model, pack \
+         FROM preferences WHERE id = 1",
     )?;
     let result = stmt.query_row([], |row| {
         Ok(Preferences {
@@ -110,7 +123,8 @@ pub fn get_preferences(conn: &Connection) -> Result<Preferences> {
             gender: row.get(4)?,
             style: row.get(5)?,
             model: row.get(6)?,
-            pack: row.get(7)?,
+            stt_model: row.get(7)?,
+            pack: row.get(8)?,
         })
     });
     match result {
@@ -122,7 +136,15 @@ pub fn get_preferences(conn: &Connection) -> Result<Preferences> {
 
 pub fn set_preference(conn: &Connection, key: &str, value: &str) -> Result<()> {
     let valid_keys = [
-        "backend", "voice", "lang", "rate", "gender", "style", "model", "pack",
+        "backend",
+        "voice",
+        "lang",
+        "rate",
+        "gender",
+        "style",
+        "model",
+        "stt_model",
+        "pack",
     ];
     if !valid_keys.contains(&key) {
         anyhow::bail!(
@@ -330,4 +352,48 @@ pub fn get_total_duration_ms(conn: &Connection) -> Result<u64> {
     let mut stmt = conn.prepare("SELECT COALESCE(SUM(duration_ms), 0) FROM usage_log")?;
     let total = stmt.query_row([], |row| row.get::<_, i64>(0))?;
     Ok(total as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A database created before `pack` and `stt_model` existed must gain both
+    /// columns without losing the preferences already stored in it.
+    #[test]
+    fn migrate_upgrades_a_legacy_preferences_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE preferences (
+                id      INTEGER PRIMARY KEY CHECK (id = 1),
+                backend TEXT, voice TEXT, lang TEXT, rate INTEGER,
+                gender  TEXT, style TEXT, model TEXT
+            );
+            INSERT INTO preferences (id, lang) VALUES (1, 'fr');",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let prefs = get_preferences(&conn).unwrap();
+        assert_eq!(prefs.lang.as_deref(), Some("fr"));
+        assert_eq!(prefs.pack, None);
+        assert_eq!(prefs.stt_model, None);
+
+        // And the new column is writable, not just readable.
+        set_preference(&conn, "stt_model", "openai/whisper-tiny").unwrap();
+        assert_eq!(
+            get_preferences(&conn).unwrap().stt_model.as_deref(),
+            Some("openai/whisper-tiny")
+        );
+    }
+
+    /// Running migrate twice must be a no-op, not a duplicate-column error.
+    #[test]
+    fn migrate_is_idempotent() {
+        let conn = open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap();
+        assert!(get_preferences(&conn).is_ok());
+    }
 }

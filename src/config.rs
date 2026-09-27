@@ -136,3 +136,27 @@ pub fn model_config_str(section: &str, key: &str) -> Option<String> {
         .as_str()
         .map(String::from)
 }
+
+#[cfg(test)]
+mod models_toml_tests {
+    /// The bundled defaults must carry a model id for every backend that
+    /// resolves one through models.toml, or that lookup silently falls back.
+    #[test]
+    fn bundled_models_toml_declares_model_ids() {
+        let table: toml::Table = super::MODELS_TOML.parse().expect("bundled toml parses");
+        for section in ["whisper", "qwen-native"] {
+            let id = table
+                .get(section)
+                .and_then(|s| s.as_table())
+                .and_then(|s| s.get("model_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| panic!("[{section}] model_id missing"));
+            assert!(!id.trim().is_empty(), "[{section}] model_id is empty");
+        }
+        assert_eq!(
+            table["whisper"]["model_id"].as_str(),
+            Some("openai/whisper-base"),
+            "the documented default changed without updating the measurements"
+        );
+    }
+}
