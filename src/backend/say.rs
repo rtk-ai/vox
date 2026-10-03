@@ -23,8 +23,12 @@ impl SayBackend {
             // say writes AIFF by default; ask for 16-bit PCM so a .wav name
             // holds real WAVE data instead of an AIFF with the wrong suffix.
             cmd.arg("-o").arg(out);
-            if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav")) {
-                cmd.arg("--file-format=WAVE").arg("--data-format=LEI16@22050");
+            if out
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+            {
+                cmd.arg("--file-format=WAVE")
+                    .arg("--data-format=LEI16@22050");
             }
         }
         cmd.arg(text);
