@@ -15,6 +15,7 @@ pub mod db;
 pub mod init;
 pub mod input;
 pub mod lang;
+pub mod levels;
 pub mod mcp;
 pub mod mic;
 pub mod pack;

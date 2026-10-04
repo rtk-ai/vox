@@ -54,6 +54,7 @@ serde_json = "1"
 tempfile = "3"
 rodio = "0.20"
 hound = "3"
+rustfft = "6"
 qwen3-tts = { git = "https://github.com/TrevorS/qwen3-tts-rs", features = ["hub"], default-features = false }
 piper-rs = { git = "https://github.com/thewh1teagle/piper-rs" }
 include_dir = "0.7"

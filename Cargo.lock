@@ -5292,6 +5292,7 @@ dependencies = [
  "reqwest",
  "rodio",
  "rusqlite",
+ "rustfft",
  "serde",
  "serde_json",
  "sys-locale",

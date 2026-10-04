@@ -86,6 +86,11 @@ pub fn play_audio_blocking(path: &Path) -> Result<()> {
     let source =
         rodio::Decoder::new(BufReader::new(file)).context("Failed to decode audio file")?;
     let sink = rodio::Sink::try_new(&stream_handle).context("Failed to create audio sink")?;
+    // Analyzed before the first sample plays, so a visualizer has the whole
+    // spectrum from the moment the sound starts.
+    let frames = crate::levels::decode_mono(path)
+        .map(|(samples, rate)| crate::levels::spectrum(&samples, rate));
+    let _now_playing = frames.as_deref().and_then(crate::levels::NowPlaying::start);
     sink.append(source);
     sink.sleep_until_end();
     Ok(())
