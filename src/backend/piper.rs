@@ -254,19 +254,10 @@ impl TtsBackend for PiperBackend {
         }
         writer.finalize()?;
 
-        // Play audio
-        #[cfg(target_os = "macos")]
-        {
-            std::process::Command::new("afplay")
-                .arg(&wav_path)
-                .status()
-                .context("failed to play audio")?;
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            crate::audio::apply_wav_gain(&wav_path, opts.volume)?;
-            crate::audio::deliver(&wav_path, opts.output.as_deref())?;
-        }
+        // The same path on every platform, so -o, the volume and the
+        // visualizer's spectrum all work for piper as for the other backends.
+        crate::audio::apply_wav_gain(&wav_path, opts.volume)?;
+        crate::audio::deliver(&wav_path, opts.output.as_deref())?;
 
         let _ = std::fs::remove_file(&wav_path);
         Ok(())
