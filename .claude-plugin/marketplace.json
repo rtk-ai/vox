@@ -1,0 +1,12 @@
+{
+  "name": "vox",
+  "description": "Claude Code plugins for vox, the local text-to-speech CLI",
+  "owner": { "name": "rtk-ai" },
+  "plugins": [
+    {
+      "name": "vox",
+      "source": "./plugins/vox",
+      "description": "Shows a live voice visualizer above the prompt while vox speaks"
+    }
+  ]
+}

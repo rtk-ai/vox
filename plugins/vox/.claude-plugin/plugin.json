@@ -1,0 +1,9 @@
+{
+  "name": "vox",
+  "version": "0.1.0",
+  "description": "Animates a waveform in Claude Code while vox speaks or listens",
+  "author": { "name": "rtk-ai" },
+  "repository": "https://github.com/rtk-ai/vox",
+  "license": "Apache-2.0",
+  "keywords": ["tts", "voice", "speech"]
+}

@@ -1,0 +1,4 @@
+{
+  "description": "The vox hooks module: draws the waveform while vox speaks or listens",
+  "modules": ["./register.js"]
+}
