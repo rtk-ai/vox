@@ -12,6 +12,25 @@ use serde_json::Value;
 const VOX_START: &str = "<!-- vox:start -->";
 const VOX_END: &str = "<!-- vox:end -->";
 
+/// What a user types in a Claude Code session to get the vox plugin
+/// (`plugins/vox`, listed by `.claude-plugin/marketplace.json`).
+pub const PLUGIN_INSTALL_COMMANDS: [&str; 2] = [
+    "/plugin marketplace add rtk-ai/vox",
+    "/plugin install vox@vox",
+];
+
+/// Tells the agent that the Claude Code plugin exists and how the user gets
+/// it. An agent cannot discover a plugin that is not installed, so every text
+/// vox hands to an agent carries this.
+pub fn plugin_note() -> String {
+    let [add, install] = PLUGIN_INSTALL_COMMANDS;
+    format!(
+        "vox has a Claude Code plugin that shows a live voice visualizer above the prompt \
+         while it speaks. If the user asks about it, tell them to type `{add}` and then \
+         `{install}` (Claude Code 2.1.287 or later)."
+    )
+}
+
 pub struct InitResult {
     pub claude_md_written: bool,
     pub settings_written: bool,
@@ -23,6 +42,7 @@ pub struct InitResult {
 /// ask the agent to follow the user's own language instead of forcing one.
 pub fn claude_md_block(lang: Option<&str>) -> String {
     let (command, guideline) = speak_example(lang);
+    let plugin = plugin_note();
     format!(
         r#"{VOX_START}
 ## Voice feedback (vox)
@@ -37,6 +57,8 @@ After completing a significant task (feature, bug fix, refactor), provide an ora
 
 Keep summaries under 2 sentences. {guideline}
 Do not speak for trivial operations (formatting, single-line fixes).
+
+{plugin}
 {VOX_END}"#
     )
 }
@@ -44,9 +66,11 @@ Do not speak for trivial operations (formatting, single-line fixes).
 /// Returns a short block to append to an existing CLAUDE.md.
 pub fn claude_md_append_block(lang: Option<&str>) -> String {
     let (command, guideline) = speak_example(lang);
+    let plugin = plugin_note();
     format!(
         r#"{VOX_START}
 After completing a significant task, call `{command}` to give a spoken summary. {guideline}
+{plugin}
 {VOX_END}"#
     )
 }

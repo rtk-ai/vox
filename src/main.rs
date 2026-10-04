@@ -714,6 +714,11 @@ fn handle_init(mode: InitMode, lang: Option<String>) -> Result<()> {
 
     println!();
     println!("Restart Claude Code / Claude Desktop to activate.");
+    println!();
+    println!("Claude Code plugin (live voice visualizer), in a Claude Code session:");
+    for command in init::PLUGIN_INSTALL_COMMANDS {
+        println!("  {command}");
+    }
 
     Ok(())
 }

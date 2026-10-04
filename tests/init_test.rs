@@ -137,6 +137,25 @@ fn test_run_init_appends_to_existing_claude_md() {
 }
 
 #[test]
+fn test_both_blocks_tell_the_agent_how_to_get_the_plugin() {
+    // The plugin is not installed by `vox init`, so the agent only knows it
+    // exists if the text written for it says so.
+    for block in [
+        init::claude_md_block(Some("en")),
+        init::claude_md_block(None),
+        init::claude_md_append_block(Some("fr")),
+    ] {
+        assert!(block.contains("Claude Code plugin"));
+        for command in init::PLUGIN_INSTALL_COMMANDS {
+            assert!(block.contains(command), "{command} missing from:\n{block}");
+        }
+        // The note sits inside the markers, so a later cleanup removes it too.
+        let end = block.find("<!-- vox:end -->").unwrap();
+        assert!(block.find("Claude Code plugin").unwrap() < end);
+    }
+}
+
+#[test]
 fn test_claude_md_append_block_is_short() {
     let block = init::claude_md_append_block(Some("en"));
     assert!(block.contains("<!-- vox:start -->"));

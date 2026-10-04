@@ -42,7 +42,10 @@ GUIDELINES:\n\
 VOICE CONVERSATION (vox_hear + vox_speak):\n\
 You can have a voice conversation with the user — you ARE the brain, no API key needed.\n\
 Loop: vox_hear (listen) → you think → vox_speak (respond). Repeat until the user says goodbye.\n\
-When the user asks to \"chat\" or \"talk\" or \"parler\", start this loop.";
+When the user asks to \"chat\" or \"talk\" or \"parler\", start this loop.\n\
+\n\
+CLAUDE CODE PLUGIN:\n\
+{plugin_note}";
 
 fn vox_instructions(lang: Option<&str>) -> String {
     let language_guideline = match lang {
@@ -51,7 +54,9 @@ fn vox_instructions(lang: Option<&str>) -> String {
         ),
         None => "- Match the language the user is writing in".to_string(),
     };
-    VOX_INSTRUCTIONS_TEMPLATE.replace("{language_guideline}", &language_guideline)
+    VOX_INSTRUCTIONS_TEMPLATE
+        .replace("{language_guideline}", &language_guideline)
+        .replace("{plugin_note}", &crate::init::plugin_note())
 }
 
 #[derive(Deserialize)]
@@ -946,6 +951,20 @@ mod tests {
         let instructions = vox_instructions(None);
         assert!(instructions.contains("Match the language the user is writing in"));
         assert!(!instructions.contains("Use French by default"));
+    }
+
+    #[test]
+    fn instructions_tell_the_agent_about_the_claude_code_plugin() {
+        // An agent cannot see a plugin that is not installed: the server is
+        // the one place that reaches it in every session.
+        for lang in [None, Some("fr")] {
+            let instructions = vox_instructions(lang);
+            assert!(instructions.contains("CLAUDE CODE PLUGIN:"));
+            for command in crate::init::PLUGIN_INSTALL_COMMANDS {
+                assert!(instructions.contains(command), "{command}");
+            }
+            assert!(!instructions.contains("{plugin_note}"));
+        }
     }
 
     #[test]

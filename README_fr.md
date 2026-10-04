@@ -53,6 +53,22 @@ vox init -m cli         # CLAUDE.md + hook Stop
 vox init -m all         # Tous les modes
 ```
 
+## Plugin Claude Code : visualiseur de voix
+
+vox fournit un plugin [Claude Code](https://claude.com/product/claude-code) qui
+affiche le spectre reel de la voix au-dessus du prompt pendant que vox parle.
+
+Dans une session Claude Code (2.1.287 ou plus recent) :
+
+```text
+/plugin marketplace add rtk-ai/vox
+/plugin install vox@vox
+/vox-wave color ocean              # couleurs : sunset, ocean, forest, fire, violet, rainbow, mono
+/vox-wave color #00ff00 #0000ff    # ou votre propre degrade
+```
+
+Details dans [plugins/vox](plugins/vox/README.md).
+
 ## Clonage de voix
 
 ```bash

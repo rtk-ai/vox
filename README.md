@@ -201,6 +201,38 @@ vox init -m cli --lang ja   # Japanese
 | **CLI** (`vox init -m cli`) | 100% | Low (Bash call) | Claude Code, Codex, terminal agents |
 | **MCP** (`vox init`) | ~72% | Higher (JSON schema) | Cursor, VS Code, GUI-based tools |
 
+## Claude Code plugin: live voice visualizer
+
+vox ships a [Claude Code](https://claude.com/product/claude-code) plugin that
+draws the spectrum of the voice above the prompt while vox speaks:
+
+```text
+            ▂ ▃           ▃ ▄ ▃          vox · speaking
+▃ ▅ ▄ ▂ ▄ ▃ █ █ ▅ ▁   ▂ ▅ █ █ █ ▆ ▃ ▁    Done. The tests pass.
+```
+
+The bars are the real audio, not an animation: vox analyzes each utterance
+before playing it and the plugin follows it in sync. It works with the MCP
+tools, with `vox ...` run from the shell, and with the Stop hook.
+
+In a Claude Code session (2.1.287 or later):
+
+```text
+/plugin marketplace add rtk-ai/vox
+/plugin install vox@vox
+```
+
+Then pick your colors, kept from one session to the next:
+
+```text
+/vox-wave                          # preview, no audio needed
+/vox-wave color ocean              # sunset, ocean, forest, fire, violet, rainbow, mono
+/vox-wave color #00ff00 #0000ff    # your own gradient, one to three stops
+```
+
+`vox init` tells the agent the plugin exists, so you can also just ask Claude
+how to get the visualizer. Details in [plugins/vox](plugins/vox/README.md).
+
 ## Voice cloning
 
 ```bash
