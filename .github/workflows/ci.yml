@@ -90,8 +90,13 @@ jobs:
 
       - name: Build
         run: cargo build ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
+        # 8.0 (RTX 30 series) is the oldest generation the candle kernels
+        # compile for: 7.0 fails on bfloat16 tensor-core fragments, 6.1 on
+        # atomicAdd for half floats. A binary built for 8.0 runs on newer
+        # cards (checked on an RTX 4070 Ti SUPER, 8.9); the previous value, 89,
+        # shut out everything older than the RTX 40 series.
         env:
-          CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '89' || '' }}
+          CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '80' || '' }}
 
       # The CUDA jobs verify that the GPU feature still compiles. They cannot
       # run the result: libcuda.so.1 ships with the NVIDIA driver, not the
@@ -108,4 +113,40 @@ jobs:
       - name: Clippy
         run: cargo clippy ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }} -- -D warnings -A clippy::collapsible_if -A clippy::collapsible_match
         env:
-          CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '89' || '' }}
+          CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '80' || '' }}
+
+  # install.sh is what `curl | sh` users run, and it decides between the CPU
+  # and the CUDA build. Lint it and run its tests (no network: they serve fake
+  # release assets) on both systems it supports — `sh` is dash on Ubuntu and
+  # bash in POSIX mode on macOS, and the two disagree often enough to matter.
+  installer:
+    name: Installer (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Preinstalled on the Ubuntu image, absent from the macOS one.
+      - name: Install shellcheck
+        run: |
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck --version
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            brew install shellcheck
+          else
+            sudo apt-get update && sudo apt-get install -y shellcheck
+          fi
+
+      - name: Lint install.sh
+        run: shellcheck -s sh install.sh
+
+      - name: Test install.sh
+        run: sh tests/install_test.sh

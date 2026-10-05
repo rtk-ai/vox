@@ -108,8 +108,44 @@ jobs:
       # "nvcc fatal : Cannot find compiler 'cl.exe' in PATH".
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
+        # 8.0 (RTX 30 series) is the oldest generation the candle kernels
+        # compile for: 7.0 fails on bfloat16 tensor-core fragments, 6.1 on
+        # atomicAdd for half floats. A binary built for 8.0 runs on newer
+        # cards (checked on an RTX 4070 Ti SUPER, 8.9); the previous value, 89,
+        # shut out everything older than the RTX 40 series.
         env:
-          CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '89' || '' }}
+          CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '80' || '' }}
+
+      # Evidence for the docs and for install.sh: which CUDA libraries the
+      # binary asks the dynamic loader for. ldd only resolves the names, it
+      # does not start vox — the runner has no GPU and no libcuda.so.1 (that
+      # one ships with the NVIDIA driver, not the toolkit), so running the
+      # binary here would fail. This step reports and never fails the job:
+      # losing the CUDA asset over a report would be worse than no report.
+      - name: Record CUDA runtime dependencies
+        if: matrix.cuda == true
+        continue-on-error: true
+        run: |
+          BIN="target/${{ matrix.target }}/release/vox"
+          ASSET="vox-${{ matrix.target }}${{ matrix.artifact_suffix }}.${{ matrix.archive }}"
+          DEPS="$(ldd "$BIN" | grep -E 'libcuda|libcublas|libcurand|libnvrtc|libcudart' || true)"
+          if [ -z "$DEPS" ]; then
+            echo "::warning title=No CUDA libraries in ldd output::ldd lists no CUDA library for $BIN. Is $ASSET really a CUDA build?"
+            echo "=== full ldd output ==="
+            ldd "$BIN" || true
+            DEPS="(none: ldd lists no CUDA library for this binary)"
+          fi
+          echo "=== CUDA libraries $ASSET needs at run time (ldd) ==="
+          echo "$DEPS"
+          {
+            echo "### CUDA libraries \`$ASSET\` needs at run time"
+            echo ""
+            echo "\`ldd\` on the build runner, which has the CUDA toolkit but no NVIDIA driver. \"not found\" means the library is not on this runner's loader path, not that the build is broken. A machine that runs this binary needs every library listed here."
+            echo ""
+            echo '```'
+            echo "$DEPS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
@@ -168,7 +204,7 @@ jobs:
             echo "::error::No tag found"
             exit 1
           fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Flatten artifacts
         run: |
@@ -177,10 +213,27 @@ jobs:
           echo "=== Release assets ==="
           ls -lh release/
 
+      # The CUDA build job is continue-on-error (a failing matrix entry once
+      # blocked every asset of a release), so when it fails this job still
+      # runs, green, with one asset missing. That is how releases went out
+      # without a CUDA build and nobody was told. The release still goes out;
+      # this step only makes the gap visible.
+      - name: Report whether the release has a CUDA build
+        run: |
+          CUDA_ASSET="vox-x86_64-unknown-linux-gnu-cuda.tar.gz"
+          if [ -f "release/$CUDA_ASSET" ]; then
+            echo "CUDA build present: $CUDA_ASSET"
+            echo "CUDA build included: \`$CUDA_ASSET\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            MSG="This release has no CUDA build: $CUDA_ASSET is missing because its build job failed (see the job \"Build x86_64-unknown-linux-gnu (CUDA)\" of this run). install.sh will fall back to the CPU build, including for VOX_GPU=cuda."
+            echo "::warning title=Release has no CUDA build::$MSG"
+            echo "**Warning:** $MSG" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Create checksums
         run: |
           cd release
-          sha256sum * > checksums.txt
+          sha256sum -- * > checksums.txt
           cat checksums.txt
 
       - name: Upload to existing release
@@ -202,8 +255,8 @@ jobs:
             TAG="${{ github.event.release.tag_name }}"
           fi
           VERSION="${TAG#v}"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Download checksums
         run: |
@@ -216,10 +269,11 @@ jobs:
       - name: Parse checksums
         id: sha
         run: |
-          echo "arm=$(grep aarch64-apple-darwin checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "intel=$(grep x86_64-apple-darwin checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "linux=$(grep 'x86_64-unknown-linux-gnu.tar.gz' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "linuxarm=$(grep 'aarch64-unknown-linux-gnu.tar.gz' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          {
+            echo "arm=$(grep aarch64-apple-darwin checksums.txt | awk '{print $1}')"
+            echo "linux=$(grep 'x86_64-unknown-linux-gnu.tar.gz' checksums.txt | awk '{print $1}')"
+            echo "linuxarm=$(grep 'aarch64-unknown-linux-gnu.tar.gz' checksums.txt | awk '{print $1}')"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Update formula
         run: |
@@ -227,20 +281,23 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
           cat > vox.rb << 'FORMULA'
           class Vox < Formula
-            desc "Cross-platform TTS CLI — local voice synthesis with three backends"
+            desc "Local text-to-speech and speech-to-text for AI coding agents"
             homepage "https://github.com/rtk-ai/vox"
             version "VERSION_PLACEHOLDER"
             license "Apache-2.0"
 
+            # macOS: Apple Silicon only (the Metal build). There is no Intel Mac
+            # build: the ONNX runtime used by the piper backend has no prebuilt
+            # binary for x86_64-apple-darwin. The requirement below stops
+            # `brew install` on an Intel Mac with "The arm64 architecture is
+            # required for this software." The url is deliberately not wrapped
+            # in on_arm: without a url the formula would not even load on an
+            # Intel Mac, and the requirement could not speak.
             on_macos do
-              on_intel do
-                url "https://github.com/rtk-ai/vox/releases/download/TAG_PLACEHOLDER/vox-x86_64-apple-darwin.tar.gz"
-                sha256 "SHA_INTEL_PLACEHOLDER"
-              end
-              on_arm do
-                url "https://github.com/rtk-ai/vox/releases/download/TAG_PLACEHOLDER/vox-aarch64-apple-darwin.tar.gz"
-                sha256 "SHA_ARM_PLACEHOLDER"
-              end
+              url "https://github.com/rtk-ai/vox/releases/download/TAG_PLACEHOLDER/vox-aarch64-apple-darwin.tar.gz"
+              sha256 "SHA_ARM_PLACEHOLDER"
+
+              depends_on arch: :arm64
             end
 
             on_linux do
@@ -265,7 +322,6 @@ jobs:
           FORMULA
           sed -i "s/VERSION_PLACEHOLDER/$VERSION/g" vox.rb
           sed -i "s/TAG_PLACEHOLDER/$TAG/g" vox.rb
-          sed -i "s/SHA_INTEL_PLACEHOLDER/${{ steps.sha.outputs.intel }}/g" vox.rb
           sed -i "s/SHA_ARM_PLACEHOLDER/${{ steps.sha.outputs.arm }}/g" vox.rb
           sed -i "s/SHA_LINUX_PLACEHOLDER/${{ steps.sha.outputs.linux }}/g" vox.rb
           sed -i "s/SHA_LINUX_ARM_PLACEHOLDER/${{ steps.sha.outputs.linuxarm }}/g" vox.rb
