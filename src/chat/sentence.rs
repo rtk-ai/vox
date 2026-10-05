@@ -1,4 +1,5 @@
-/// Default minimum chunk size (matches backend/qwen.rs for subprocess TTS).
+/// Minimum chunk size of `SentenceAccumulator::new()`. Chat does not use it:
+/// it asks for the lower threshold below.
 const DEFAULT_MIN_CHUNK_CHARS: usize = 120;
 
 /// Lower threshold for streaming chat — smaller chunks = lower latency.
