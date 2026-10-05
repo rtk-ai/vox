@@ -231,7 +231,7 @@ fn tool_definitions() -> Value {
                     },
                     "rate": {
                         "type": "integer",
-                        "description": "Speech rate in words per minute (say backend only)"
+                        "description": "Speech rate in words per minute. Only the say backend, on macOS, reads it"
                     },
                     "volume": {
                         "type": "number",

@@ -102,6 +102,17 @@ jobs:
         env:
           CUDA_COMPUTE_CAP: ${{ matrix.cuda == true && '80' || '' }}
 
+      # Nobody on the project builds on Windows: the binary of a pull request
+      # is the only way to try a change on a real Windows machine before it
+      # is released. Kept three days.
+      - name: Keep the Windows binary
+        if: runner.os == 'Windows' && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vox-windows-pr
+          path: target/debug/vox.exe
+          retention-days: 3
+
       # The CUDA jobs verify that the GPU feature still compiles. They cannot
       # run the result: libcuda.so.1 ships with the NVIDIA driver, not the
       # toolkit, and the GitHub runners have no GPU — the test binary dies with
