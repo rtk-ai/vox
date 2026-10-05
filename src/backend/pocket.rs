@@ -134,8 +134,10 @@ where
         eprintln!("Loading pocket-tts model {MODEL_VARIANT}...");
         let variant = ensure_config(cloning)?;
         let variant = variant.to_str().context("config path is not valid UTF-8")?;
+        crate::timing::mark("pocket: config ready");
         let model = TTSModel::load(variant).context("failed to load pocket-tts model")?;
         *guard = Some(model);
+        crate::timing::mark("pocket: model loaded");
     }
     f(guard.as_ref().unwrap())
 }
@@ -181,6 +183,21 @@ fn resolve_voice_state(model: &TTSModel, voice: &str) -> Result<ModelState> {
     )
 }
 
+/// One generated frame, shaped `[batch, channels, samples]`, as mono samples.
+fn mono_samples(frame: &candle_core::Tensor) -> Result<Vec<f32>> {
+    let channels = frame
+        .squeeze(0)
+        .and_then(|frame| frame.to_vec2::<f32>())
+        .context("unexpected audio frame shape")?;
+    match channels.as_slice() {
+        [] => Ok(Vec::new()),
+        [only] => Ok(only.clone()),
+        many => Ok((0..many[0].len())
+            .map(|i| many.iter().map(|channel| channel[i]).sum::<f32>() / many.len() as f32)
+            .collect()),
+    }
+}
+
 impl TtsBackend for PocketBackend {
     fn name(&self) -> &str {
         "pocket"
@@ -195,17 +212,54 @@ impl TtsBackend for PocketBackend {
             .unwrap_or(DEFAULT_VOICE)
             .to_string();
 
+        // Speaking: play each frame as the model produces it, so the first
+        // sound comes after one frame of work instead of the whole utterance.
+        if opts.output.is_none() {
+            // Opened before the model loads, so the two waits overlap.
+            let player = audio::Player::start(opts.volume);
+            with_model(|model| {
+                let voice_state = resolve_voice_state(model, &voice)?;
+                crate::timing::mark("pocket: voice state ready");
+                let sample_rate = model.sample_rate as u32;
+                let mut frames = 0usize;
+                let mut is_playing = true;
+                for frame in model.generate_stream(text, &voice_state) {
+                    let frame = frame.context("pocket-tts generation failed")?;
+                    if !player.push(sample_rate, mono_samples(&frame)?) {
+                        // The player is gone, so the device failed. `finish`
+                        // below says why; generating more would be wasted.
+                        is_playing = false;
+                        break;
+                    }
+                    frames += 1;
+                }
+                crate::timing::mark("pocket: audio synthesized");
+                if is_playing && frames == 0 {
+                    anyhow::bail!("No audio generated");
+                }
+                Ok(())
+            })?;
+            return player.finish();
+        }
+
         let tmp = tempfile::NamedTempFile::new().context("failed to create temp file")?;
         let wav_path = tmp.path().with_extension("wav");
 
         with_model(|model| {
             let voice_state = resolve_voice_state(model, &voice)?;
+            crate::timing::mark("pocket: voice state ready");
             let audio_tensor = model
                 .generate(text, &voice_state)
                 .context("pocket-tts generation failed")?;
-            pocket_tts::audio::write_wav(&wav_path, &audio_tensor, model.sample_rate as u32)
+            crate::timing::mark("pocket: audio synthesized");
+            // Buffered: handed a bare file, the writer issues one write per sample.
+            let file = std::io::BufWriter::new(
+                std::fs::File::create(&wav_path).context("failed to create audio file")?,
+            );
+            pocket_tts::audio::write_wav_to_writer(file, &audio_tensor, model.sample_rate as u32)
                 .context("failed to save generated audio")
         })?;
+        crate::timing::mark("pocket: wav written");
 
         audio::apply_wav_gain(&wav_path, opts.volume)?;
         audio::deliver(&wav_path, opts.output.as_deref())?;

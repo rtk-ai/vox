@@ -29,7 +29,7 @@ struct Cli {
     #[arg(short = 'v', long)]
     voice: Option<String>,
 
-    /// Language code (for qwen backend)
+    /// Language code (picks the voice; other languages than English default to the piper backend)
     #[arg(short = 'l', long)]
     lang: Option<String>,
 
@@ -45,7 +45,7 @@ struct Cli {
     #[arg(long)]
     style: Option<String>,
 
-    /// TTS model (e.g. mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit for faster inference)
+    /// TTS model for the qwen-native backend (e.g. Qwen/Qwen3-TTS-12Hz-0.6B-Base)
     #[arg(short = 'm', long)]
     model: Option<String>,
 
@@ -88,7 +88,7 @@ enum Commands {
         #[command(subcommand)]
         action: DaemonAction,
     },
-    /// Set up AI assistant integration (Claude Code + Claude Desktop)
+    /// Set up AI assistant integration (Claude Code, Cursor, VS Code and 11 other tools)
     Init {
         /// Language for the generated instructions and Stop hook
         /// (default: your `vox config set lang`, else the system locale)
@@ -246,7 +246,9 @@ enum DaemonAction {
 }
 
 fn main() -> Result<()> {
+    vox::timing::start();
     let cli = Cli::parse();
+    vox::timing::mark("arguments parsed");
 
     match cli.command {
         Some(Commands::Clone { action }) => handle_clone(action),
@@ -340,12 +342,14 @@ fn handle_speak(cli: Cli) -> Result<()> {
         output: cli.output.clone(),
     };
 
+    vox::timing::mark("preferences and backend resolved");
     let start = Instant::now();
 
-    // Try daemon for heavy backends (warm model = fast inference)
+    // Try the daemon for backends that load a model: a warm one skips the load,
+    // which is the largest fixed cost of a short utterance (0.3 to 0.4 s for piper).
     let is_heavy = matches!(
         effective_backend.as_str(),
-        "qwen-native" | "kokoro" | "pocket"
+        "qwen-native" | "kokoro" | "pocket" | "piper"
     );
     // Saving bypasses the daemon on purpose: the daemon renders in its own
     // process, and a relative path there would resolve against its working
@@ -449,6 +453,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 prefs.stt_model.as_deref().unwrap_or("(default)")
             );
             println!("pack:    {}", prefs.pack.as_deref().unwrap_or("(none)"));
+            println!("{}", vox::accel::config_line());
         }
         ConfigAction::Set { key, value } => {
             db::set_preference(&conn, &key, &value)?;

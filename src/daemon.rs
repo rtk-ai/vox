@@ -162,6 +162,9 @@ impl DaemonState {
         if crate::backend::pocket::is_loaded() {
             backends.push("pocket".into());
         }
+        if crate::backend::piper::is_loaded() {
+            backends.push("piper".into());
+        }
         if crate::backend::qwen_native::is_loaded() {
             backends.push("qwen-native".into());
         }

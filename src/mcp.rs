@@ -713,6 +713,7 @@ fn tool_config_show() -> ToolResult {
                 format!("style:   {}", prefs.style.as_deref().unwrap_or("(default)")),
                 format!("model:   {}", prefs.model.as_deref().unwrap_or("(default)")),
                 format!("pack:    {}", prefs.pack.as_deref().unwrap_or("(none)")),
+                crate::accel::config_line(),
             ];
             tool_ok(lines.join("\n"))
         }

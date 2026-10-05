@@ -30,8 +30,8 @@ function row(tall: number): number[] {
 }
 
 // What vox writes while it plays (src/levels.rs)
-function announcement(startedMs: number, frames: number[][]): string {
-  return JSON.stringify({ version: 1, pid: 4242, started_ms: startedMs, frame_ms: 50, bands: BARS, frames })
+function announcement(startedMs: number, frames: number[][], complete = true): string {
+  return JSON.stringify({ version: 1, pid: 4242, started_ms: startedMs, frame_ms: 50, bands: BARS, complete, frames })
 }
 
 // The cells the band draws for one announced row
@@ -344,5 +344,79 @@ test('the colors saved in an earlier session come back at session start', async 
   expect((await ui.find({ type: 'Raster' })).props.cells).toBe(
     rasterCells(levels('speak', 0, BARS), [0x112233, 0x445566], 2),
   )
+  await ui.unmount()
+})
+
+test('a playback vox is still generating grows frame by frame, and holds its last frame meanwhile', async ($, on) => {
+  const { clock, file } = voxWorld(on)
+  on('ui.render', () => THEIRS)
+  on('tool.call', async () => {
+    await clock.sleep(5000)
+    return { result: 'ok' }
+  })
+  const call = $.tool.call({ tool: 'Bash', command: 'vox "A long sentence, played while it is generated."' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const cells = async () => (await ui.find({ type: 'Raster' })).props.cells
+
+  // vox starts playing with the two frames it has, and says more will follow
+  const frames = [row(1), row(2), row(3), row(4), row(5), row(6)]
+  file.text = announcement(T0 + 100, frames.slice(0, 2), false)
+  await clock.advance(100)
+  expect(await cells()).toBe(cellsOf(frames[0]))
+  await clock.advance(50)
+  expect(await cells()).toBe(cellsOf(frames[1]))
+
+  // The sound has passed the last frame known and the next aren't written yet:
+  // the bars stay on that frame, still speaking
+  await clock.advance(50)
+  expect(await ui.find({ type: 'Text', text: 'vox · speaking' })).toBeDefined()
+  expect(await cells()).toBe(cellsOf(frames[1]))
+
+  // vox writes the rest, with the same start: the bars pick up where the sound is
+  file.text = announcement(T0 + 100, frames, true)
+  await clock.advance(100)
+  expect(await cells()).toBe(cellsOf(frames[4]))
+  await clock.advance(50)
+  expect(await cells()).toBe(cellsOf(frames[5]))
+
+  // Complete and over: nothing is held any longer
+  await clock.advance(50)
+  expect(await ui.find({ type: 'Text', text: 'vox · preparing' })).toBeDefined()
+
+  await clock.advance(5000)
+  await call
+  await ui.unmount()
+})
+
+test('a playback that stops announcing before it completes is not held forever', async ($, on) => {
+  const { clock, file } = voxWorld(on)
+  on('ui.render', () => THEIRS)
+  on('tool.call', async () => {
+    await clock.sleep(6000)
+    return { result: 'ok' }
+  })
+  const call = $.tool.call({ tool: 'Bash', command: 'vox "Hello"' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  file.text = announcement(T0 + 50, [row(3)], false)
+  await clock.advance(100)
+  expect(await ui.find({ type: 'Text', text: 'vox · speaking' })).toBeDefined()
+
+  // vox is gone and took its file with it
+  file.text = undefined
+  await clock.advance(200)
+  expect(await ui.find({ type: 'Text', text: 'vox · preparing' })).toBeDefined()
+
+  // Or it died and left the file: the last frame is held two seconds, no more
+  file.text = announcement(T0 + 400, [row(3)], false)
+  await clock.advance(300)
+  expect(await ui.find({ type: 'Text', text: 'vox · speaking' })).toBeDefined()
+  await clock.advance(2500)
+  expect(await ui.find({ type: 'Text', text: 'vox · preparing' })).toBeDefined()
+
+  await clock.advance(6000)
+  await call
   await ui.unmount()
 })

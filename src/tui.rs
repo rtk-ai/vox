@@ -49,18 +49,18 @@ impl App {
         let conn = db::open()?;
         let prefs = db::get_preferences(&conn)?;
 
+        // Every backend this build can run, the defaults first. The first
+        // word of each line is the name stored as the preference.
+        #[allow(unused_mut)]
+        let mut backends = vec![
+            "pocket       English, default        CPU",
+            "piper        other languages, default  CPU",
+            "qwen-native  voice cloning           GPU if the build has one",
+        ];
+        #[cfg(feature = "kokoro")]
+        backends.push("kokoro       English                 CPU");
         #[cfg(target_os = "macos")]
-        let backends = vec![
-            "say          \u{2605}\u{2605}\u{2605} quality  \u{26a1} 3s",
-            "piper        \u{2605}\u{2605}  quality  \u{26a1} <1s  [Rust]",
-            "qwen-native  \u{2605}\u{2605}\u{2605}\u{2605} quality  \u{26a1} 12s  [Rust+Metal]",
-            "qwen         \u{2605}\u{2605}\u{2605}\u{2605} quality  \u{26a1} 2s   [Python+MLX]",
-        ];
-        #[cfg(not(target_os = "macos"))]
-        let backends = vec![
-            "piper        \u{2605}\u{2605}  quality  \u{26a1} <1s  [Rust]",
-            "qwen-native  \u{2605}\u{2605}\u{2605}\u{2605} quality  \u{26a1} 3s   [Rust+CUDA]",
-        ];
+        backends.push("say          macOS system voices");
 
         let current_backend = prefs.backend.as_deref().unwrap_or(config::DEFAULT_BACKEND);
         let backend_idx = backends
@@ -90,7 +90,13 @@ impl App {
             .and_then(|s| styles.iter().position(|x| *x == s))
             .unwrap_or(0);
 
-        let voices = Self::load_voices(backends[backend_idx]);
+        // The name is the first word of the label.
+        let voices = Self::load_voices(
+            backends[backend_idx]
+                .split_whitespace()
+                .next()
+                .unwrap_or(config::DEFAULT_BACKEND),
+        );
 
         let voice_idx = prefs
             .voice

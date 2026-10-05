@@ -26,6 +26,9 @@ const MIN_BARS = 6
 const SPINNER_BARS = 5
 // The file vox writes in its config directory while it plays (src/levels.rs)
 const ANNOUNCEMENT = 'now-playing.json'
+// Frames the last known row stays up while vox is still generating the next
+// ones: two seconds, after which the announcement is taken for abandoned
+const HOLD_FRAMES = 40
 // The store key the speaking gradient is kept under, from one session to the next
 const COLORS_KEY = 'colors'
 // Seconds the bars show after a change of colors
@@ -47,7 +50,9 @@ let frame = 0
 let ticker = null
 // Where vox announces what it plays: undefined until looked for, null if unknown
 let announcementPath
-// The playback vox last announced: { startedMs, frameMs, frames }
+// The playback vox last announced: { startedMs, frameMs, frames, isComplete }.
+// vox announces a playback it is still generating as incomplete, and adds
+// frames to it as they come.
 let playing = null
 // The time at the last tick, and at the last look for an announcement
 let now = 0
@@ -77,18 +82,35 @@ async function poll($) {
   try {
     data = JSON.parse(await $.fs.read(announcementPath))
   } catch {
-    // No file: vox isn't playing, or is a build that doesn't announce
+    // No file: vox isn't playing, or is a build that doesn't announce. A
+    // playback still waiting for frames has ended without them.
+    if (playing && !playing.isComplete) playing = null
     return
   }
   if (data.version !== 1 || !Array.isArray(data.frames) || !(data.frame_ms > 0)) return
-  playing = { startedMs: data.started_ms, frameMs: data.frame_ms, frames: data.frames }
+  playing = {
+    startedMs: data.started_ms,
+    frameMs: data.frame_ms,
+    frames: data.frames,
+    // Builds that announce the whole utterance at once don't say so
+    isComplete: data.complete !== false,
+  }
 }
 
 // The spectrum row sounding now, or null when vox isn't playing
 function currentRow() {
   if (!playing) return null
   const index = Math.floor((now - playing.startedMs) / playing.frameMs)
-  return index >= 0 ? (playing.frames[index] ?? null) : null
+  if (index < 0) return null
+  const row = playing.frames[index]
+  if (row) return row
+  // Past the last frame of a playback vox is still generating: hold that
+  // frame rather than drop to "preparing" between two updates
+  const missing = index - playing.frames.length
+  if (!playing.isComplete && playing.frames.length > 0 && missing < HOLD_FRAMES) {
+    return playing.frames.at(-1)
+  }
+  return null
 }
 
 // Start animating for one activity
@@ -98,7 +120,8 @@ function begin($, activity) {
     ticker = $.clock.every(TICK_MS, async () => {
       frame += 1
       now = await $.clock.now()
-      if (!currentRow() && now - polledAt >= POLL_MS) {
+      const isWaitingForFrames = playing !== null && !playing.isComplete
+      if ((!currentRow() || isWaitingForFrames) && now - polledAt >= POLL_MS) {
         polledAt = now
         await poll($)
       }

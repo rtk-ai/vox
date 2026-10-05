@@ -7,7 +7,9 @@ spinner.
 While vox plays, the bars are the real spectrum of the audio: vox analyzes each
 utterance before playing it and announces it in `now-playing.json`, in its
 config directory, for as long as the sound lasts (`src/levels.rs`). The mod
-reads that file and follows it from the start time.
+reads that file and follows it from the start time. A backend that plays while
+it is still generating (pocket) announces the frames it has and adds the rest
+as they come.
 
 - `vox · preparing`: Claude has called vox and no sound has started yet
 - `vox · speaking`: the spectrum of what the speakers are playing now

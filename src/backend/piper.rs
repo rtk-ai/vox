@@ -20,6 +20,12 @@ pub struct PiperBackend;
 /// Reloads when language changes (different ONNX model per language).
 static MODEL: Mutex<Option<(String, Piper)>> = Mutex::new(None);
 
+/// Whether a voice is currently resident in this process. Used by
+/// `vox daemon status` to report what is actually warm.
+pub fn is_loaded() -> bool {
+    MODEL.try_lock().map(|g| g.is_some()).unwrap_or(true)
+}
+
 /// espeak-ng-data embedded at build time (staged by build.rs into OUT_DIR).
 /// Needed because the espeak-ng library statically linked into vox has a
 /// hard-coded data path from the CI builder that does not exist on user
@@ -208,11 +214,13 @@ fn get_or_load_model(
         None => true,
     };
 
+    crate::timing::mark("piper: espeak data ready");
     if need_reload {
         let (onnx_path, json_path) = ensure_model(lang)?;
         let model = Piper::new(&onnx_path, &json_path)
             .map_err(|e| anyhow::anyhow!("failed to load piper model: {e}"))?;
         *guard = Some((lang.to_string(), model));
+        crate::timing::mark("piper: model loaded");
     }
 
     Ok(guard)
@@ -226,6 +234,12 @@ impl TtsBackend for PiperBackend {
     fn speak(&self, text: &str, opts: &SpeakOptions) -> Result<()> {
         let lang = opts.lang.as_deref().unwrap_or("en");
 
+        // Opened before the model loads, so the two waits overlap.
+        let player = opts
+            .output
+            .is_none()
+            .then(|| crate::audio::Player::start(opts.volume));
+
         let mut guard = get_or_load_model(lang)?;
         let (_, model) = guard.as_mut().context("model not loaded")?;
 
@@ -233,8 +247,15 @@ impl TtsBackend for PiperBackend {
             .create(text, false, None, None, None, None)
             .map_err(|e| anyhow::anyhow!("Piper TTS failed: {e}"))?;
 
+        crate::timing::mark("piper: audio synthesized");
         if audio_data.is_empty() {
             return Ok(());
+        }
+
+        // Speaking needs no file: the samples go straight to the device.
+        if let Some(player) = player {
+            player.push(sample_rate, audio_data);
+            return player.finish();
         }
 
         // Write to temp WAV
@@ -253,9 +274,9 @@ impl TtsBackend for PiperBackend {
             writer.write_sample(s)?;
         }
         writer.finalize()?;
+        crate::timing::mark("piper: wav written");
 
-        // The same path on every platform, so -o, the volume and the
-        // visualizer's spectrum all work for piper as for the other backends.
+        // Saving goes through the same delivery point as every other backend.
         crate::audio::apply_wav_gain(&wav_path, opts.volume)?;
         crate::audio::deliver(&wav_path, opts.output.as_deref())?;
 
