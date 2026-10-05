@@ -6,10 +6,13 @@ pub const DEFAULT_BACKEND: &str = "pocket";
 
 /// Language-aware default backend, used when neither the CLI flag nor a
 /// stored preference selects one. The pocket checkpoint is English-only, so
-/// non-English languages fall back to piper (per-language voices).
+/// non-English languages fall back to piper (per-language voices). Japanese
+/// goes to qwen-native: piper has no Japanese voice vox can phonemize, and
+/// qwen-native is the one backend that speaks it on every platform.
 pub fn default_backend_for_lang(lang: Option<&str>) -> &'static str {
     match lang {
         None | Some("en") => DEFAULT_BACKEND,
+        Some("ja") => "qwen-native",
         Some(_) => "piper",
     }
 }
@@ -135,4 +138,28 @@ pub fn model_config_str(section: &str, key: &str) -> Option<String> {
         .get(key)?
         .as_str()
         .map(String::from)
+}
+
+#[cfg(test)]
+mod models_toml_tests {
+    /// The bundled defaults must carry a model id for every backend that
+    /// resolves one through models.toml, or that lookup silently falls back.
+    #[test]
+    fn bundled_models_toml_declares_model_ids() {
+        let table: toml::Table = super::MODELS_TOML.parse().expect("bundled toml parses");
+        for section in ["whisper", "qwen-native"] {
+            let id = table
+                .get(section)
+                .and_then(|s| s.as_table())
+                .and_then(|s| s.get("model_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| panic!("[{section}] model_id missing"));
+            assert!(!id.trim().is_empty(), "[{section}] model_id is empty");
+        }
+        assert_eq!(
+            table["whisper"]["model_id"].as_str(),
+            Some("openai/whisper-base"),
+            "the documented default changed without updating the measurements"
+        );
+    }
 }

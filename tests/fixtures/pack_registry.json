@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "total_packs": 2,
+  "packs": [
+    {
+      "name": "abbot",
+      "display_name": "The Abbot (Stronghold Crusader)",
+      "version": "1.2.1",
+      "description": "The Abbot voice lines from Stronghold Crusader — scheming monastery lord",
+      "author": {
+        "name": "Marko Jevic",
+        "github": "koyev"
+      },
+      "trust_tier": "community",
+      "categories": [
+        "input.required",
+        "resource.limit",
+        "session.start",
+        "task.acknowledge",
+        "task.complete",
+        "task.error",
+        "user.spam"
+      ],
+      "language": "en",
+      "license": "fair-use",
+      "sound_count": 14,
+      "total_size_bytes": 440163,
+      "source_repo": "openpeon-stronghold/abbot",
+      "source_ref": "v1.2.1",
+      "source_path": ".",
+      "manifest_sha256": "3c0b417aa7da75ebfe4e5a38f4165e49e1d2c959399cb4262c6c89f5445d4722",
+      "tags": [
+        "gaming",
+        "stronghold",
+        "rts",
+        "firefly"
+      ],
+      "preview_sounds": [
+        "ab_add_player_01.mp3",
+        "ab_willattack_01.mp3"
+      ],
+      "added": "2026-03-01",
+      "updated": "2026-03-03",
+      "quality": "silver"
+    },
+    {
+      "name": "peon",
+      "display_name": "Orc Peon",
+      "version": "1.0.0",
+      "description": "Orc Peon sound pack from Warcraft III",
+      "author": {
+        "name": "tonyyont",
+        "github": "tonyyont"
+      },
+      "trust_tier": "official",
+      "categories": [
+        "session.start",
+        "task.acknowledge",
+        "task.complete",
+        "task.error",
+        "input.required",
+        "resource.limit",
+        "user.spam"
+      ],
+      "language": "en",
+      "license": "CC-BY-NC-4.0",
+      "sound_count": 27,
+      "total_size_bytes": 872012,
+      "source_repo": "PeonPing/og-packs",
+      "source_ref": "v1.0.0",
+      "source_path": "peon",
+      "manifest_sha256": "565178cd55b46a66d443a9e8c001fa51926413d5e562677b43a5de2381c7fe8e",
+      "tags": [
+        "gaming",
+        "warcraft",
+        "blizzard",
+        "rts"
+      ],
+      "preview_sounds": [
+        "PeonReady1.wav",
+        "PeonReady1.wav"
+      ],
+      "added": "2026-02-12",
+      "updated": "2026-02-12",
+      "quality": "silver"
+    }
+  ]
+}

@@ -14,3 +14,12 @@ subdir = "packs"
 
 [qwen-native]
 model_id = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+
+# Speech-to-text. Measured on 11.85s of French audio, warm, Apple M2:
+#   tiny   0.93s   350 MB RAM   164 MB on disk   roughest
+#   base   1.52s   631 MB RAM   292 MB on disk   good enough
+#   small  5.07s  1980 MB RAM  1053 MB on disk   marginally better
+# base is the default: 3x faster and 3x lighter than small for one fewer
+# mistake on a 30-word sentence. Raise it if you have the memory.
+[whisper]
+model_id = "openai/whisper-base"

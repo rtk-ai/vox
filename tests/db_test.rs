@@ -228,3 +228,48 @@ fn test_usage_stats_ordered_desc() {
     assert_eq!(entries[0].backend, "piper"); // most recent first
     assert_eq!(entries[1].backend, "say");
 }
+
+/// `vox stats` reports characters: a text is logged by its character count,
+/// not by its length in bytes.
+#[test]
+fn test_log_speech_counts_characters() {
+    let conn = db::open_in_memory().unwrap();
+    db::log_speech(&conn, "piper", None, Some("fr"), "éééé", Some(10)).unwrap();
+    db::log_speech(&conn, "piper", None, Some("ja"), "終わりました", None).unwrap();
+    let entries = db::get_usage_stats(&conn).unwrap();
+    assert_eq!(entries[1].text_len, 4);
+    assert_eq!(entries[0].text_len, 6);
+    assert_eq!(db::get_usage_summary(&conn).unwrap(), (2, 10));
+}
+
+/// The lines shared by `vox config show` and the `vox_config_show` MCP tool
+/// carry every preference, `stt_model` included.
+#[test]
+fn test_summary_lines_cover_every_preference() {
+    let conn = db::open_in_memory().unwrap();
+    let fresh = db::get_preferences(&conn)
+        .unwrap()
+        .summary_lines()
+        .join("\n");
+    for key in [
+        "backend:",
+        "voice:",
+        "lang:",
+        "rate:",
+        "gender:",
+        "style:",
+        "model:",
+        "stt_model:",
+        "pack:",
+    ] {
+        assert!(fresh.contains(key), "{key} missing from:\n{fresh}");
+    }
+    assert!(fresh.contains("stt_model: (default)"));
+    assert!(fresh.contains("pack:    (none)"));
+
+    db::set_preference(&conn, "stt_model", "openai/whisper-tiny").unwrap();
+    db::set_preference(&conn, "rate", "180").unwrap();
+    let lines = db::get_preferences(&conn).unwrap().summary_lines();
+    assert!(lines.contains(&"stt_model: openai/whisper-tiny".to_string()));
+    assert!(lines.contains(&"rate:    180".to_string()));
+}

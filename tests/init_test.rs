@@ -137,6 +137,25 @@ fn test_run_init_appends_to_existing_claude_md() {
 }
 
 #[test]
+fn test_both_blocks_tell_the_agent_how_to_get_the_plugin() {
+    // The plugin is not installed by `vox init`, so the agent only knows it
+    // exists if the text written for it says so.
+    for block in [
+        init::claude_md_block(Some("en")),
+        init::claude_md_block(None),
+        init::claude_md_append_block(Some("fr")),
+    ] {
+        assert!(block.contains("Claude Code plugin"));
+        for command in init::PLUGIN_INSTALL_COMMANDS {
+            assert!(block.contains(command), "{command} missing from:\n{block}");
+        }
+        // The note sits inside the markers, so a later cleanup removes it too.
+        let end = block.find("<!-- vox:end -->").unwrap();
+        assert!(block.find("Claude Code plugin").unwrap() < end);
+    }
+}
+
+#[test]
 fn test_claude_md_append_block_is_short() {
     let block = init::claude_md_append_block(Some("en"));
     assert!(block.contains("<!-- vox:start -->"));
@@ -217,4 +236,169 @@ fn run_init_writes_the_requested_language() {
     assert!(md.contains("vox -l ja"));
     assert!(settings.contains("完了しました。"));
     assert!(!md.contains("French") && !settings.contains("Terminé"));
+}
+
+// --- MCP mode: only the tools found on the machine ---
+
+/// A home directory of the test's own, with the applications' settings
+/// directory inside it on every platform.
+struct Home {
+    dir: tempfile::TempDir,
+}
+
+impl Home {
+    fn new() -> Self {
+        Self {
+            dir: tempfile::tempdir().unwrap(),
+        }
+    }
+
+    fn path(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+
+    fn app_config(&self) -> std::path::PathBuf {
+        self.path().join("apps")
+    }
+
+    fn init(&self) -> Vec<init::McpReport> {
+        init::configure_mcp(self.path(), &self.app_config(), "/usr/local/bin/vox")
+    }
+
+    fn status(&self, label: &str) -> String {
+        let reports = self.init();
+        let report = reports.iter().find(|r| r.label == label).unwrap();
+        report.status.clone()
+    }
+}
+
+/// `vox init` used to write a configuration file for each of the 14 tools,
+/// creating the directories of applications that were not installed.
+#[test]
+fn mcp_init_writes_nothing_when_no_tool_is_installed() {
+    let home = Home::new();
+
+    let reports = home.init();
+
+    assert_eq!(reports.len(), 14);
+    for report in &reports {
+        assert_eq!(report.status, "not installed, skipped", "{}", report.label);
+        assert!(!report.installed && !report.newly_configured);
+    }
+    let left: Vec<_> = fs::read_dir(home.path()).unwrap().collect();
+    assert!(left.is_empty(), "init created {left:?}");
+}
+
+#[test]
+fn mcp_init_configures_the_tools_it_finds_and_no_others() {
+    let home = Home::new();
+    let cline = home
+        .app_config()
+        .join("Code/User/globalStorage/saoudrizwan.claude-dev");
+    for dir in [
+        home.path().join(".cursor"),
+        home.path().join(".codex"),
+        home.path().join(".config/zed"),
+        cline.clone(),
+    ] {
+        fs::create_dir_all(dir).unwrap();
+    }
+
+    let reports = home.init();
+
+    let configured: Vec<&str> = reports
+        .iter()
+        .filter(|r| r.newly_configured)
+        .map(|r| r.label)
+        .collect();
+    // An extension's directory lives inside VS Code's, so VS Code is found too.
+    assert_eq!(
+        configured,
+        ["Cursor", "VS Code / Copilot", "Zed", "Codex", "Cline"]
+    );
+
+    let cursor: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(home.path().join(".cursor/mcp.json")).unwrap())
+            .unwrap();
+    assert_eq!(cursor["mcpServers"]["vox"]["command"], "/usr/local/bin/vox");
+    assert_eq!(cursor["mcpServers"]["vox"]["args"][0], "serve");
+    let codex = fs::read_to_string(home.path().join(".codex/config.toml")).unwrap();
+    assert!(codex.contains("[mcp_servers.vox]"), "{codex}");
+    let zed: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(home.path().join(".config/zed/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        zed["context_servers"]["vox"]["command"]["path"],
+        "/usr/local/bin/vox"
+    );
+    // The extension's directory was there; its `settings` folder was not.
+    assert!(cline.join("settings/cline_mcp_settings.json").is_file());
+
+    // The neighbours of what was found are still not there.
+    for absent in [
+        home.path().join(".claude.json"),
+        home.path().join(".gemini"),
+        home.path().join(".config/opencode"),
+        home.app_config().join("Claude"),
+        home.app_config()
+            .join("Code/User/globalStorage/kilocode.kilo-code"),
+    ] {
+        assert!(!absent.exists(), "init created {}", absent.display());
+    }
+}
+
+#[test]
+fn mcp_init_is_idempotent_and_keeps_what_the_file_held() {
+    let home = Home::new();
+    let config = home.path().join(".cursor/mcp.json");
+    fs::create_dir_all(config.parent().unwrap()).unwrap();
+    fs::write(
+        &config,
+        r#"{"mcpServers": {"other": {"command": "other"}}}"#,
+    )
+    .unwrap();
+
+    assert_eq!(home.status("Cursor"), "configured");
+    assert_eq!(home.status("Cursor"), "already configured");
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
+    assert_eq!(parsed["mcpServers"]["other"]["command"], "other");
+    assert_eq!(parsed["mcpServers"]["vox"]["args"][0], "serve");
+}
+
+/// Claude Code's file sits in the home directory itself, so it is found by
+/// that file or by `~/.claude`, never by the home directory existing.
+#[test]
+fn mcp_init_finds_claude_code_by_its_file_or_its_directory() {
+    let by_directory = Home::new();
+    assert_eq!(by_directory.status("Claude Code"), "not installed, skipped");
+    fs::create_dir(by_directory.path().join(".claude")).unwrap();
+    assert_eq!(by_directory.status("Claude Code"), "configured");
+    assert!(by_directory.path().join(".claude.json").is_file());
+
+    let by_file = Home::new();
+    fs::write(by_file.path().join(".claude.json"), "{}").unwrap();
+    assert_eq!(by_file.status("Claude Code"), "configured");
+}
+
+#[test]
+fn mcp_init_reports_a_file_it_cannot_read_and_goes_on() {
+    let home = Home::new();
+    fs::create_dir_all(home.path().join(".cursor")).unwrap();
+    fs::write(home.path().join(".cursor/mcp.json"), "not json").unwrap();
+    fs::create_dir_all(home.path().join(".gemini")).unwrap();
+
+    let reports = home.init();
+
+    let cursor = reports.iter().find(|r| r.label == "Cursor").unwrap();
+    assert!(cursor.status.starts_with("error:"), "{}", cursor.status);
+    assert!(cursor.installed && !cursor.newly_configured);
+    let gemini = reports.iter().find(|r| r.label == "Gemini").unwrap();
+    assert_eq!(gemini.status, "configured");
+    assert_eq!(
+        fs::read_to_string(home.path().join(".cursor/mcp.json")).unwrap(),
+        "not json"
+    );
 }

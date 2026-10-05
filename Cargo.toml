@@ -2,7 +2,7 @@
 name = "vox"
 version = "0.16.0"
 edition = "2024"
-description = "Cross-platform TTS CLI — local voice synthesis with seven backends and an MCP server"
+description = "Local text-to-speech and speech-to-text for AI coding agents: one Rust binary, several voices, an MCP server"
 license = "Apache-2.0"
 repository = "https://github.com/rtk-ai/vox"
 keywords = ["tts", "voice", "speech", "cli"]
@@ -14,7 +14,7 @@ copyright = "2026, rtk-ai"
 extended-description = "Local text-to-speech CLI with multiple backends (Kyutai pocket-tts, Piper, Qwen3-TTS) and an MCP server for AI assistants."
 section = "sound"
 priority = "optional"
-depends = "libasound2t64 | libasound2"
+depends = "libasound2t64 | libasound2, libssl3t64 | libssl3"
 assets = [
     ["target/release/vox", "usr/bin/", "755"],
     ["README.md", "usr/share/doc/vox/README", "644"],
@@ -28,6 +28,7 @@ assets = [
 
 [package.metadata.generate-rpm.requires]
 alsa-lib = "*"
+openssl-libs = ">= 3"
 
 [features]
 default = []
@@ -54,6 +55,7 @@ serde_json = "1"
 tempfile = "3"
 rodio = "0.20"
 hound = "3"
+rustfft = "6"
 qwen3-tts = { git = "https://github.com/TrevorS/qwen3-tts-rs", features = ["hub"], default-features = false }
 piper-rs = { git = "https://github.com/thewh1teagle/piper-rs" }
 include_dir = "0.7"

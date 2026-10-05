@@ -39,4 +39,6 @@ fn test_default_backend_for_lang() {
     assert_eq!(default_backend_for_lang(Some("en")), "pocket");
     assert_eq!(default_backend_for_lang(Some("fr")), "piper");
     assert_eq!(default_backend_for_lang(Some("de")), "piper");
+    // piper has no Japanese voice it can phonemize.
+    assert_eq!(default_backend_for_lang(Some("ja")), "qwen-native");
 }

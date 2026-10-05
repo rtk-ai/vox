@@ -12,7 +12,19 @@ use qwen3_tts::{AudioBuffer, Language, ModelPaths, Qwen3TTS};
 use super::{SpeakOptions, TtsBackend};
 use crate::audio;
 
+/// Fallback when `models.toml` carries no `[qwen-native] model_id`.
 const DEFAULT_MODEL: &str = "Qwen/Qwen3-TTS-12Hz-0.6B-Base";
+
+/// Which Qwen3-TTS repo to load: the `--model` flag or `model` preference
+/// first, then the `[qwen-native] model_id` in models.toml, then the default.
+pub fn model_id(override_id: Option<&str>) -> String {
+    if let Some(id) = override_id.map(str::trim).filter(|s| !s.is_empty()) {
+        return id.to_string();
+    }
+    crate::config::model_config_str("qwen-native", "model_id")
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string())
+}
 
 pub struct QwenNativeBackend;
 
@@ -22,9 +34,11 @@ pub fn is_loaded() -> bool {
     MODEL.try_lock().map(|g| g.is_some()).unwrap_or(true)
 }
 
-/// Global model instance — loaded once, stays warm for the process lifetime.
-/// Uses Mutex because Qwen3TTS contains RefCell (not Sync).
-static MODEL: Mutex<Option<Qwen3TTS>> = Mutex::new(None);
+/// Global model instance, paired with the repo id it was loaded from — kept
+/// warm for the process lifetime. Uses Mutex because Qwen3TTS holds a RefCell
+/// (not Sync). The id is stored so that asking for a *different* model reloads
+/// instead of silently reusing the resident one.
+static MODEL: Mutex<Option<(String, Qwen3TTS)>> = Mutex::new(None);
 
 pub fn with_model<F, T>(model_id: Option<&str>, f: F) -> Result<T>
 where
@@ -33,24 +47,26 @@ where
     let mut guard = MODEL
         .lock()
         .map_err(|e| anyhow::anyhow!("model lock poisoned: {e}"))?;
-    if guard.is_none() {
-        load_model_inner(&mut guard, model_id)?;
-    }
-    f(guard.as_ref().unwrap())
+    load_if_needed(&mut guard, model_id)?;
+    f(&guard.as_ref().unwrap().1)
 }
 
-fn load_model_inner(
-    guard: &mut std::sync::MutexGuard<'_, Option<Qwen3TTS>>,
-    model_id: Option<&str>,
+/// Load the requested model unless that exact model is already resident.
+fn load_if_needed(
+    guard: &mut std::sync::MutexGuard<'_, Option<(String, Qwen3TTS)>>,
+    requested: Option<&str>,
 ) -> Result<()> {
-    let id = model_id.unwrap_or(DEFAULT_MODEL);
+    let id = model_id(requested);
+    if guard.as_ref().is_some_and(|(loaded, _)| *loaded == id) {
+        return Ok(());
+    }
     eprintln!("Loading model {id} (downloading if needed)...");
     let paths =
-        ModelPaths::download(Some(id)).context("failed to download model from HuggingFace Hub")?;
+        ModelPaths::download(Some(&id)).context("failed to download model from HuggingFace Hub")?;
     let device = qwen3_tts::auto_device().context("failed to detect compute device")?;
     eprintln!("Using device: {device:?}");
     let model = Qwen3TTS::from_paths(&paths, device).context("failed to load Qwen3-TTS model")?;
-    **guard = Some(model);
+    **guard = Some((id, model));
     Ok(())
 }
 
@@ -59,9 +75,7 @@ pub fn preload_model(model_id: Option<&str>) -> Result<()> {
     let mut guard = MODEL
         .lock()
         .map_err(|e| anyhow::anyhow!("model lock poisoned: {e}"))?;
-    if guard.is_none() {
-        load_model_inner(&mut guard, model_id)?;
-    }
+    load_if_needed(&mut guard, model_id)?;
     Ok(())
 }
 
@@ -99,7 +113,14 @@ impl TtsBackend for QwenNativeBackend {
         // after: the Base checkpoint has no preset speakers and `synthesize`
         // takes no language, so the language only reaches the model through
         // the voice-clone path. Say so instead of ignoring the flag silently.
-        if opts.lang.is_some() && ref_audio_path.is_none() {
+        //
+        // Not for Japanese: it comes here by default, because piper cannot
+        // speak it, and the advice to use piper would send the user back to
+        // the backend that refused them.
+        if let Some(code) = opts.lang.as_deref()
+            && code != "ja"
+            && ref_audio_path.is_none()
+        {
             eprintln!(
                 "Warning: -l/--lang has no effect on qwen-native without a voice clone \
                  (the Base model infers the language from the text). \
@@ -132,7 +153,7 @@ impl TtsBackend for QwenNativeBackend {
             .save(&wav_path)
             .context("failed to save generated audio")?;
 
-        audio::play_wav_blocking(&wav_path)?;
+        audio::deliver(&wav_path, opts.output.as_deref())?;
 
         let _ = std::fs::remove_file(&wav_path);
 

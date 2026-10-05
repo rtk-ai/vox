@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use super::{API_URL, API_VERSION, MAX_TOKENS, Message, SYSTEM_PROMPT};
+use super::{API_URL, API_VERSION, MAX_TOKENS, Message, system_prompt};
 
 #[derive(Debug)]
 pub enum StreamEvent {
@@ -53,11 +53,13 @@ pub struct ContentBlock {
     pub text: String,
 }
 
+/// Request for the blocking call. It knows no conversation language, so it
+/// carries the prompt of an unset one; the chat loop streams, with its own.
 pub fn build_claude_request(model: &str, messages: &[Message]) -> ClaudeRequest {
     ClaudeRequest {
         model: model.to_string(),
         max_tokens: MAX_TOKENS,
-        system: SYSTEM_PROMPT.to_string(),
+        system: system_prompt(None),
         messages: messages.to_vec(),
     }
 }
@@ -94,10 +96,22 @@ pub fn call_claude(api_key: &str, model: &str, messages: &[Message]) -> Result<S
     parse_claude_response(&body)
 }
 
+fn stream_request(model: &str, system: &str, messages: &[Message]) -> StreamRequest {
+    StreamRequest {
+        model: model.to_string(),
+        max_tokens: MAX_TOKENS,
+        system: system.to_string(),
+        messages: messages.to_vec(),
+        stream: true,
+    }
+}
+
 /// Stream Claude API response via SSE, sending text deltas through the channel.
+/// `system` is the system prompt, in the conversation language.
 pub fn stream_claude(
     api_key: &str,
     model: &str,
+    system: &str,
     messages: &[Message],
     tx: mpsc::Sender<StreamEvent>,
 ) -> Result<()> {
@@ -105,22 +119,17 @@ pub fn stream_claude(
         .enable_all()
         .build()
         .context("failed to create tokio runtime")?;
-    rt.block_on(stream_claude_inner(api_key, model, messages, tx))
+    rt.block_on(stream_claude_inner(api_key, model, system, messages, tx))
 }
 
 async fn stream_claude_inner(
     api_key: &str,
     model: &str,
+    system: &str,
     messages: &[Message],
     tx: mpsc::Sender<StreamEvent>,
 ) -> Result<()> {
-    let request = StreamRequest {
-        model: model.to_string(),
-        max_tokens: MAX_TOKENS,
-        system: SYSTEM_PROMPT.to_string(),
-        messages: messages.to_vec(),
-        stream: true,
-    };
+    let request = stream_request(model, system, messages);
 
     let client = reqwest::Client::new();
     let resp = client
@@ -192,6 +201,15 @@ async fn stream_claude_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_request_carries_the_system_prompt_it_is_given() {
+        let system = system_prompt(Some("de"));
+        let request = stream_request("some-model", &system, &[]);
+        let json = serde_json::to_value(&request).expect("request serializes");
+        assert_eq!(json["system"], system);
+        assert_eq!(json["stream"], true);
+    }
 
     #[test]
     fn test_sse_parsing() {

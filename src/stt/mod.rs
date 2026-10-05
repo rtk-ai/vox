@@ -1,8 +1,10 @@
 //! Speech-to-text — Whisper running locally on candle (pure Rust, all platforms).
 //!
 //! The model is downloaded from the Hugging Face hub on first use and kept
-//! warm in a process-wide cache so that repeated `vox hear` calls inside the
-//! daemon or MCP server do not reload weights.
+//! in a process-wide cache, so a process that transcribes more than once (the
+//! MCP server's `vox_hear`, the turns of `vox chat`) loads the weights once.
+//! Each `vox hear` command is a new process and loads them again: the daemon
+//! only speaks and has no transcription route.
 
 pub mod whisper;
 
@@ -14,24 +16,54 @@ use anyhow::{Context, Result};
 use crate::mic;
 pub use whisper::WhisperStt;
 
-/// Default multilingual model: 99 languages, ~1 GB of RAM, fine on CPU.
-pub const DEFAULT_MODEL: &str = "openai/whisper-small";
+/// Fallback when `models.toml` carries no `[whisper] model_id`.
+///
+/// Measured on 11.85s of French audio, warm, Apple M2 (see models.toml):
+/// tiny 0.93s / 350 MB, base 1.52s / 631 MB, small 5.07s / 1980 MB. `base` is
+/// 3x faster and 3x lighter than `small` for one fewer mistake in 30 words.
+pub const DEFAULT_MODEL: &str = "openai/whisper-base";
 
-/// Higher-quality option for machines with a GPU and >= 16 GB of RAM
-/// (~3.5 GB of RAM in f32). Select it with `VOX_STT_MODEL` or `--model`.
+/// Higher-quality option for machines with a GPU and plenty of memory.
+/// Select it with `vox config set stt_model`, `VOX_STT_MODEL` or `--model`.
 pub const QUALITY_MODEL: &str = "openai/whisper-large-v3-turbo";
 
 static MODEL: Mutex<Option<WhisperStt>> = Mutex::new(None);
 
-/// Model repo to use: `VOX_STT_MODEL` env var, else [`DEFAULT_MODEL`].
+/// Which Whisper repo to load, most specific source first: the `--model`
+/// flag, `VOX_STT_MODEL`, the stored `stt_model` preference, the
+/// `[whisper] model_id` in models.toml, then [`DEFAULT_MODEL`].
+///
+/// The env var sits above the stored preference on purpose: otherwise anyone
+/// who ever ran `vox config set stt_model` could no longer override it for a
+/// single shell.
 pub fn model_id(override_id: Option<&str>) -> String {
-    if let Some(id) = override_id.filter(|s| !s.trim().is_empty()) {
+    if let Some(id) = override_id.map(str::trim).filter(|s| !s.is_empty()) {
         return id.to_string();
     }
-    std::env::var("VOX_STT_MODEL")
+    if let Some(id) = std::env::var("VOX_STT_MODEL")
         .ok()
-        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        return id;
+    }
+    if let Some(id) = configured_model() {
+        return id;
+    }
+    crate::config::model_config_str("whisper", "model_id")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_MODEL.to_string())
+}
+
+/// The `stt_model` preference, if the user set one.
+fn configured_model() -> Option<String> {
+    crate::db::open()
+        .ok()
+        .and_then(|conn| crate::db::get_preferences(&conn).ok())
+        .and_then(|p| p.stt_model)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// Whisper language token name for a language code (`fr` -> `<|fr|>`).
@@ -117,7 +149,19 @@ mod tests {
             model_id(Some("openai/whisper-small")),
             "openai/whisper-small"
         );
+        // Blank overrides are ignored, not passed through as a repo name.
         assert_eq!(model_id(Some("  ")), model_id(None));
+        assert_eq!(
+            model_id(Some(" openai/whisper-tiny ")),
+            "openai/whisper-tiny"
+        );
+    }
+
+    #[test]
+    fn resolved_model_is_never_empty() {
+        // Whichever layer answers — preference, env, models.toml or the
+        // built-in — the result has to be a usable repo id.
+        assert!(!model_id(None).trim().is_empty());
     }
 
     #[test]

@@ -9,8 +9,9 @@ use rodio::{OutputStream, Sink};
 
 use super::claude_api::{StreamEvent, stream_claude};
 use super::sentence::{STREAMING_MIN_CHUNK_CHARS, SentenceAccumulator};
-use super::{ChatConfig, Message, is_exit, record_until_enter, speak_text};
-use crate::backend::qwen_native;
+use super::{ChatConfig, Message, is_exit, phrases, record_until_enter, system_prompt};
+use crate::backend::say::SayBackend;
+use crate::backend::{SpeakOptions, qwen_native};
 use crate::stt;
 
 enum TtsCommand {
@@ -53,86 +54,89 @@ fn crossfade_into(prev_tail: &[f32], samples: &mut [f32], overlap: usize) {
     }
 }
 
-/// Which TTS strategy to use in the streaming loop.
+/// How the conversation is spoken. Chosen once, and used for everything vox
+/// says in it: the greeting, the replies and the farewell.
+#[derive(Debug, Clone)]
 enum TtsStrategy {
     /// macOS `say` command — instant, no model loading.
     Say { voice: Option<String> },
-    /// qwen-native streaming — neural voice, needs model load.
-    QwenNative { lang: Option<String> },
-    /// qwen-native voice cloning — blocking per sentence.
+    /// qwen-native voice cloning — blocking per sentence, needs model load.
     VoiceClone {
         voice_clone: crate::db::VoiceClone,
         lang: Option<String>,
     },
 }
 
+impl TtsStrategy {
+    /// A voice clone when the conversation has one, `say` otherwise. Nothing
+    /// but a clone is worth loading Qwen3-TTS for: this module only exists on
+    /// macOS, where `say` is always there and speaks at once.
+    fn choose(
+        voice_clone: Option<crate::db::VoiceClone>,
+        lang: Option<String>,
+        say_voice: Option<String>,
+    ) -> Self {
+        match voice_clone {
+            Some(voice_clone) => TtsStrategy::VoiceClone { voice_clone, lang },
+            None => TtsStrategy::Say { voice: say_voice },
+        }
+    }
+
+    /// Speak what arrives on `rx`, until `Done`.
+    fn run(&self, rx: mpsc::Receiver<TtsCommand>) -> Result<()> {
+        match self {
+            TtsStrategy::Say { voice } => run_tts_say_loop(rx, voice.as_deref()),
+            TtsStrategy::VoiceClone { voice_clone, lang } => {
+                run_tts_clone_loop(rx, voice_clone, lang.as_deref())
+            }
+        }
+    }
+
+    /// Speak one sentence and wait for it to end.
+    fn speak(&self, text: &str) -> Result<()> {
+        let (tx, rx) = mpsc::channel();
+        let _ = tx.send(TtsCommand::Speak(text.to_string()));
+        let _ = tx.send(TtsCommand::Done);
+        self.run(rx)
+    }
+}
+
 /// Run the streaming chat loop: STT -> Claude streaming -> TTS pipelining.
 pub fn run_chat_loop(config: ChatConfig) -> Result<()> {
     let mut messages: Vec<Message> = Vec::new();
-    let greeting = "Bonjour, je t'écoute.";
+    let phrases = phrases(config.lang.as_deref());
+    let system = system_prompt(config.lang.as_deref());
 
-    // Determine TTS strategy: voice clone > say (macOS, fast) > qwen-native
-    let strategy = if let Some(vc) = config.voice_clone.clone() {
-        TtsStrategy::VoiceClone {
-            voice_clone: vc,
-            lang: config.lang.clone(),
-        }
-    } else if cfg!(target_os = "macos") {
-        // Use say backend on macOS for instant TTS
-        let voice = crate::db::open()
-            .ok()
-            .and_then(|conn| crate::db::get_preferences(&conn).ok())
-            .and_then(|prefs| prefs.voice);
-        TtsStrategy::Say { voice }
-    } else {
-        TtsStrategy::QwenNative {
-            lang: config.lang.clone(),
-        }
-    };
+    // TTS strategy: the voice clone if there is one, else say.
+    let say_voice = crate::db::open()
+        .ok()
+        .and_then(|conn| crate::db::get_preferences(&conn).ok())
+        .and_then(|prefs| prefs.voice);
+    let strategy = TtsStrategy::choose(config.voice_clone.clone(), config.lang.clone(), say_voice);
 
-    // Pre-load qwen-native model in background while greeting plays.
-    let needs_qwen = matches!(
-        strategy,
-        TtsStrategy::QwenNative { .. } | TtsStrategy::VoiceClone { .. }
-    );
-    let preload_handle = if needs_qwen {
-        Some(thread::spawn(|| qwen_native::preload_model(None)))
-    } else {
-        None
-    };
-
-    eprintln!("{greeting}");
-    speak_text(greeting, &config)?;
-
-    // Wait for model to finish loading (usually done by now).
-    if let Some(handle) = preload_handle
-        && let Err(e) = handle
-            .join()
-            .map_err(|_| anyhow::anyhow!("preload thread panicked"))?
-    {
-        eprintln!("Warning: model preload failed: {e}");
-    }
+    // With a clone this is where Qwen3-TTS loads, before the first turn.
+    eprintln!("{}", phrases.greeting);
+    strategy.speak(phrases.greeting)?;
 
     loop {
-        eprintln!("\n[Appuie sur Enter quand tu as fini de parler]");
+        eprintln!("\n{}", phrases.press_enter);
         io::stderr().flush()?;
 
         let samples = record_until_enter()?;
 
-        eprint!("Transcription...");
+        eprint!("{}", phrases.transcribing);
         io::stderr().flush()?;
         let user_text = stt::transcribe_samples(&samples, config.lang.as_deref())?;
         eprintln!(" \"{user_text}\"");
 
         if user_text.is_empty() {
-            eprintln!("(rien détecté, réessaie)");
+            eprintln!("{}", phrases.nothing_heard);
             continue;
         }
 
         if is_exit(&user_text) {
-            let farewell = "Au revoir !";
-            eprintln!("{farewell}");
-            speak_text(farewell, &config)?;
+            eprintln!("{}", phrases.farewell);
+            strategy.speak(phrases.farewell)?;
             break;
         }
 
@@ -142,30 +146,15 @@ pub fn run_chat_loop(config: ChatConfig) -> Result<()> {
         });
 
         // --- Streaming response ---
-        eprint!("Réflexion...");
+        eprint!("{}", phrases.thinking);
         io::stderr().flush()?;
 
         // Channel: main thread -> TTS thread (sentences to speak)
         let (tts_tx, tts_rx) = mpsc::channel::<TtsCommand>();
 
         // Spawn TTS thread with the chosen strategy
-        let tts_handle = match &strategy {
-            TtsStrategy::Say { voice } => {
-                let voice = voice.clone();
-                thread::spawn(move || -> Result<()> { run_tts_say_loop(tts_rx, voice.as_deref()) })
-            }
-            TtsStrategy::QwenNative { lang } => {
-                let lang = lang.clone();
-                thread::spawn(move || -> Result<()> {
-                    run_tts_streaming_loop(tts_rx, lang.as_deref())
-                })
-            }
-            TtsStrategy::VoiceClone { voice_clone, lang } => {
-                let vc = voice_clone.clone();
-                let lang = lang.clone();
-                thread::spawn(move || -> Result<()> { run_tts_clone_loop(tts_rx, Some(vc), lang) })
-            }
-        };
+        let tts_strategy = strategy.clone();
+        let tts_handle = thread::spawn(move || tts_strategy.run(tts_rx));
 
         // Channel: Claude stream -> main thread (text deltas)
         let (claude_tx, claude_rx) = mpsc::channel::<StreamEvent>();
@@ -173,9 +162,10 @@ pub fn run_chat_loop(config: ChatConfig) -> Result<()> {
         // Spawn Claude streaming in a thread
         let api_key = config.api_key.clone();
         let model = config.model.clone();
+        let system = system.clone();
         let msgs = messages.clone();
         let claude_handle = thread::spawn(move || -> Result<()> {
-            stream_claude(&api_key, &model, &msgs, claude_tx)
+            stream_claude(&api_key, &model, &system, &msgs, claude_tx)
         });
 
         // Accumulate sentences from Claude stream and send to TTS
@@ -236,17 +226,23 @@ pub fn run_chat_loop(config: ChatConfig) -> Result<()> {
     Ok(())
 }
 
+/// The `say` invocation for one sentence: the one the `say` backend builds,
+/// so that a reply starting with a dash ("- first item") is spoken instead of
+/// being refused as an unknown option.
+fn say_command(text: &str, voice: Option<&str>) -> Command {
+    let opts = SpeakOptions {
+        voice: voice.map(String::from),
+        ..Default::default()
+    };
+    SayBackend::build_command(text, &opts)
+}
+
 /// TTS thread using macOS `say` command — instant, sentence by sentence.
 fn run_tts_say_loop(rx: mpsc::Receiver<TtsCommand>, voice: Option<&str>) -> Result<()> {
     for cmd in rx {
         match cmd {
             TtsCommand::Speak(text) => {
-                let mut cmd = Command::new("/usr/bin/say");
-                if let Some(v) = voice {
-                    cmd.arg("-v").arg(v);
-                }
-                cmd.arg(&text);
-                let _ = cmd.status();
+                let _ = say_command(&text, voice).status();
             }
             TtsCommand::Done => break,
         }
@@ -254,82 +250,15 @@ fn run_tts_say_loop(rx: mpsc::Receiver<TtsCommand>, voice: Option<&str>) -> Resu
     Ok(())
 }
 
-/// TTS thread using qwen-native: blocking synthesis per sentence with crossfade.
-///
-/// Uses `synthesize_with_voice()` to generate each sentence as a complete audio
-/// buffer. Each sentence plays smoothly (no intra-sentence gaps). While the sink
-/// plays sentence N, synthesis of sentence N+1 starts immediately, minimizing
-/// inter-sentence gaps. Cosine crossfade eliminates clicks at boundaries.
-fn run_tts_streaming_loop(rx: mpsc::Receiver<TtsCommand>, lang: Option<&str>) -> Result<()> {
-    use qwen3_tts::Speaker;
-
-    let (_stream, stream_handle) =
-        OutputStream::try_default().context("Failed to open audio output device")?;
-    let sink = Sink::try_new(&stream_handle).context("Failed to create audio sink")?;
-
-    let tts_lang = qwen_native::parse_language(lang.unwrap_or("en"))?;
-
-    let mut prev_tail: Option<(Vec<f32>, u32)> = None;
-    let mut is_first_sentence = true;
-
-    for cmd in rx {
-        match cmd {
-            TtsCommand::Speak(text) => {
-                qwen_native::with_model(None, |model| {
-                    let audio =
-                        model.synthesize_with_voice(&text, Speaker::Ryan, tts_lang, None)?;
-                    let sr = audio.sample_rate;
-                    let mut samples = audio.samples;
-                    let overlap = ((sr as usize * CROSSFADE_MS) / 1000).min(samples.len());
-
-                    // Crossfade with previous sentence's tail.
-                    if let Some((tail, _)) = prev_tail.take() {
-                        crossfade_into(&tail, &mut samples, overlap);
-                    } else if is_first_sentence {
-                        fade_in(&mut samples, overlap);
-                        is_first_sentence = false;
-                    }
-
-                    // Hold back tail for crossfade with next sentence.
-                    if samples.len() > overlap {
-                        let split_at = samples.len() - overlap;
-                        let tail = samples.split_off(split_at);
-                        sink.append(SamplesBuffer::new(1, sr, samples));
-                        prev_tail = Some((tail, sr));
-                    } else {
-                        prev_tail = Some((samples, sr));
-                    }
-
-                    Ok(())
-                })?;
-            }
-            TtsCommand::Done => {
-                // Flush remaining tail with fade-out.
-                if let Some((mut tail, sr)) = prev_tail.take() {
-                    let n = tail.len();
-                    fade_out(&mut tail, n);
-                    sink.append(SamplesBuffer::new(1, sr, tail));
-                }
-                break;
-            }
-        }
-    }
-
-    // Wait for all queued audio to finish playing.
-    sink.sleep_until_end();
-    Ok(())
-}
-
 /// TTS thread for voice cloning: blocking synthesis per sentence, with crossfade.
 fn run_tts_clone_loop(
     rx: mpsc::Receiver<TtsCommand>,
-    voice_clone: Option<crate::db::VoiceClone>,
-    lang: Option<String>,
+    vc: &crate::db::VoiceClone,
+    lang: Option<&str>,
 ) -> Result<()> {
     use qwen3_tts::AudioBuffer;
 
-    let vc = voice_clone.context("voice clone config missing")?;
-    let tts_lang = qwen_native::parse_language(lang.as_deref().unwrap_or("en"))?;
+    let tts_lang = qwen_native::parse_language(lang.unwrap_or("en"))?;
 
     let (_stream, stream_handle) =
         OutputStream::try_default().context("Failed to open audio output device")?;
@@ -386,4 +315,67 @@ fn run_tts_clone_loop(
 
     sink.sleep_until_end();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clone_named(name: &str) -> crate::db::VoiceClone {
+        crate::db::VoiceClone {
+            name: name.to_string(),
+            ref_audio: "/tmp/ref.wav".to_string(),
+            ref_text: None,
+            created_at: String::new(),
+        }
+    }
+
+    /// The greeting is spoken with the strategy chosen here. Without a clone
+    /// it must be `say`, whatever the language: saying hello is no reason to
+    /// load, or download, Qwen3-TTS.
+    #[test]
+    fn without_a_voice_clone_the_strategy_is_say() {
+        for lang in [None, Some("en"), Some("fr"), Some("ja")] {
+            let strategy =
+                TtsStrategy::choose(None, lang.map(String::from), Some("Thomas".to_string()));
+            assert!(
+                matches!(&strategy, TtsStrategy::Say { voice } if voice.as_deref() == Some("Thomas")),
+                "lang {lang:?}: {strategy:?}"
+            );
+        }
+        assert!(matches!(
+            TtsStrategy::choose(None, None, None),
+            TtsStrategy::Say { voice: None }
+        ));
+    }
+
+    #[test]
+    fn with_a_voice_clone_the_strategy_is_the_clone_in_the_conversation_language() {
+        let strategy = TtsStrategy::choose(
+            Some(clone_named("patrick")),
+            Some("fr".to_string()),
+            Some("Thomas".to_string()),
+        );
+        match strategy {
+            TtsStrategy::VoiceClone { voice_clone, lang } => {
+                assert_eq!(voice_clone.name, "patrick");
+                assert_eq!(lang.as_deref(), Some("fr"));
+            }
+            other => panic!("expected the voice clone, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_sentence_that_starts_with_a_dash_is_not_read_by_say_as_an_option() {
+        let args = |cmd: Command| -> Vec<String> {
+            cmd.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(
+            args(say_command("- first item", Some("Thomas"))),
+            ["-v", "Thomas", "--", "- first item"]
+        );
+        assert_eq!(args(say_command("Hello.", None)), ["Hello."]);
+    }
 }
