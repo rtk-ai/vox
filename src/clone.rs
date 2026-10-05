@@ -159,6 +159,9 @@ pub fn record_clone(name: &str, duration: u32) -> Result<String> {
     if samples.is_empty() {
         bail!("Recording failed: no audio captured");
     }
+    if let Some(warning) = crate::mic::clipping_warning(&samples) {
+        eprintln!("{warning}");
+    }
     crate::mic::write_wav(&output_path, &samples, rate)?;
     eprintln!("Recording saved to {output_str}");
     Ok(output_str)

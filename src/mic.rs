@@ -49,6 +49,15 @@ pub const MIN_VAD_THRESHOLD: f32 = 0.002;
 /// Input peak under which the microphone is too quiet to transcribe well.
 pub const LOW_INPUT_PEAK: f32 = 0.05;
 
+/// A sample this close to full scale was almost certainly cut off by the
+/// converter rather than produced by the speaker.
+const CLIP_LEVEL: f32 = 0.999;
+
+/// Below this share of clipped samples, the flat tops are too rare to hear.
+/// Above it, the recording is audibly distorted and a voice clone trained on
+/// it reproduces the distortion.
+const CLIP_FRACTION: f32 = 0.0002;
+
 /// How far the loudest frame must rise above the noise floor before the buffer
 /// is considered to hold speech at all. Without this, a peak-relative
 /// threshold on a silent recording drops below the room tone and every frame
@@ -260,6 +269,29 @@ pub fn speech_bounds(
         }
     }
     (start, None)
+}
+
+/// Warn about a recording that is too hot, and say what to do about it.
+///
+/// A clipped reference is the one input problem that cannot be repaired
+/// afterwards: the peaks are already flat. vox already warns when the input is
+/// too quiet, so this covers the other end.
+pub fn clipping_warning(samples: &[f32]) -> Option<String> {
+    if samples.is_empty() {
+        return None;
+    }
+    let clipped = samples.iter().filter(|s| s.abs() >= CLIP_LEVEL).count();
+    let fraction = clipped as f32 / samples.len() as f32;
+    if fraction <= CLIP_FRACTION {
+        return None;
+    }
+    Some(format!(
+        "Note: the recording is clipping ({clipped} samples at full scale, \
+         {:.2}% of the take). Lower the system input volume and record again — \
+         flattened peaks cannot be repaired afterwards, and a voice clone \
+         trained on them reproduces the distortion.",
+        fraction * 100.0
+    ))
 }
 
 /// Write 16 kHz mono samples as a 16-bit PCM WAV file.
@@ -493,6 +525,31 @@ pub fn record_native(opts: &RecordOptions) -> Result<(Vec<f32>, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipping_warning_fires_only_on_a_hot_take() {
+        // A clean take: peaks well below full scale.
+        let clean: Vec<f32> = (0..10_000)
+            .map(|i| ((i % 100) as f32 / 200.0) - 0.25)
+            .collect();
+        assert!(clipping_warning(&clean).is_none());
+
+        // Two stray full-scale samples in 10k: too rare to hear, no warning.
+        let mut rare = clean.clone();
+        rare[10] = 1.0;
+        rare[20] = -1.0;
+        assert!(clipping_warning(&rare).is_none());
+
+        // 1% of the take flat-topped: audible, and unfixable afterwards.
+        let mut hot = clean.clone();
+        for s in hot.iter_mut().take(100) {
+            *s = 1.0;
+        }
+        let warning = clipping_warning(&hot).expect("1% clipped must warn");
+        assert!(warning.contains("clipping"), "{warning}");
+
+        assert!(clipping_warning(&[]).is_none());
+    }
 
     #[test]
     fn rms_of_silence_is_zero() {
