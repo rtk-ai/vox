@@ -58,10 +58,10 @@ vox setup                               # Configuracion interactiva (TUI)
 
 ## Integracion con IA
 
-Un comando configura **14 herramientas de IA** (Claude Code, Cursor, VS Code, Zed, Codex, Gemini, Amazon Q, etc.):
+Un comando configura, entre **14 herramientas de IA**, las que estan instaladas en la maquina (Claude Code, Cursor, VS Code, Zed, Codex, Gemini, Amazon Q, etc.):
 
 ```bash
-vox init                # Servidor MCP (por defecto) — todas las herramientas
+vox init                # Servidor MCP (por defecto) — las herramientas instaladas
 vox init -m cli         # CLAUDE.md + hook Stop
 vox init -m all         # Todos los modos
 ```

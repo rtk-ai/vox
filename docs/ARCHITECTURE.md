@@ -37,8 +37,8 @@ src/
     mod.rs        Trait TtsBackend, SpeakOptions, get_backend(), supported_backends()
     pocket.rs     Kyutai pocket-tts (candle, CPU, anglais) : backend par defaut pour l'anglais
                   et quand aucune langue n'est donnee
-    piper.rs      Piper (ONNX Runtime via piper-rs, espeak-ng embarque, une voix par langue) :
-                  backend par defaut des autres langues
+    piper.rs      Piper (ONNX Runtime via piper-rs, espeak-ng embarque, une voix par defaut
+                  par langue, les autres par leur nom) : backend par defaut des autres langues
     qwen_native.rs  Qwen3-TTS (candle, clonage de voix, GPU en build Metal ou CUDA)
     kokoro.rs     Kokoro (ONNX, crate kokoro-tts) : compile seulement avec la feature kokoro
     say.rs        /usr/bin/say : compile seulement sur macOS
@@ -47,7 +47,8 @@ src/
                   enums (Gender, IntonationStyle), lecture de models.toml
   db.rs           SQLite (rusqlite) : preferences, clones, journal d'utilisation, stats
   daemon.rs       Daemon HTTP local qui garde les modeles charges (vox daemon start|stop|status)
-  init.rs         vox init : configuration MCP de 14 outils IA, bloc CLAUDE.md, hook Stop
+  init.rs         vox init : configuration MCP des outils IA installes (14 connus), bloc CLAUDE.md,
+                  hook Stop
   input.rs        Lecture du texte (arguments ou stdin)
   lang.rs         Resolution de langue pour vox init et les instructions MCP
                   (drapeau > preference > locale systeme)
@@ -81,14 +82,14 @@ Le repertoire de config est `dirs::config_dir()/vox` (`config::config_dir()`) : 
 | Backend | Disponibilite | Moteur | Peripherique | Langues | Clonage de voix |
 |---------|---------------|--------|--------------|---------|-----------------|
 | `pocket` | Tous les builds | Kyutai pocket-tts sur candle | CPU | Anglais, 8 voix predefinies | Oui, avec `HF_TOKEN` et le checkpoint a acces restreint |
-| `piper` | Tous les builds | Piper sur ONNX Runtime (piper-rs), espeak-ng embarque | CPU | 12 langues, une voix par langue | Non |
+| `piper` | Tous les builds | Piper sur ONNX Runtime (piper-rs), espeak-ng embarque | CPU | 11 langues avec une voix par defaut (pas de japonais) ; une autre voix piper se choisit par son nom (`-v fr_FR-siwis-low`) | Non |
 | `qwen-native` | Tous les builds | Qwen3-TTS sur candle | GPU en build Metal ou CUDA, sinon CPU | en, fr, es, de, it, pt, zh, ja, ko, ru | Oui |
 | `kokoro` | Build `--features kokoro` | Kokoro sur ONNX (crate kokoro-tts) | Non verifie | Voix listees dans `kokoro.rs` | Non |
 | `say` | macOS | `/usr/bin/say` | Systeme | Voix systeme | Non |
 
 Un build de release standard ne contient pas `kokoro` : il repond `Unknown backend: kokoro`. Les fichiers du modele kokoro ne sont pas telecharges par vox ; le message d'erreur du backend donne les commandes `curl`.
 
-Les modeles sont telecharges au premier usage : pocket et qwen-native depuis le hub Hugging Face ; piper telecharge la voix de la langue demandee (un fichier `.onnx` et son `.onnx.json`) dans le sous-repertoire `piper/` du repertoire de config.
+Les modeles sont telecharges au premier usage : pocket et qwen-native depuis le hub Hugging Face ; piper telecharge la voix choisie (un fichier `.onnx` et son `.onnx.json`) dans le sous-repertoire `piper/` du repertoire de config.
 
 Avec `qwen-native` et sans clone de voix, `-l` n'a pas d'effet : le modele deduit la langue du texte, et vox ecrit un avertissement sur stderr. Les codes `ar` et `nl` sont refuses par ce backend.
 
@@ -112,14 +113,17 @@ Chaque backend implemente ce trait. Le dispatch se fait via `get_backend(name)` 
 Le defaut est le meme sur toutes les plateformes (`config::default_backend_for_lang`) :
 
 - langue absente ou `en` : `pocket` (`config::DEFAULT_BACKEND`)
+- `ja` : `qwen-native`
 - toute autre langue : `piper`
 
-Le checkpoint pocket ne parle que l'anglais, d'ou le repli sur piper.
+Le checkpoint pocket ne parle que l'anglais, d'ou le repli sur piper. piper n'a
+pas de voix japonaise utilisable (la seule publiee demande un phonemiseur que
+vox n'a pas), d'ou qwen-native pour le japonais.
 
 Ordre de resolution :
 
-- Serveur MCP (`mcp.rs::tool_speak`) : parametre `backend` > preference `backend` > defaut selon la langue.
-- CLI (`main.rs::handle_speak`) : `-b` > preference `backend` > defaut selon la langue. Le CLI compare la valeur de `-b` a `pocket` pour savoir si le flag a ete donne : `-b pocket` est donc traite comme l'absence de `-b`, et la preference ou le defaut selon la langue s'applique.
+- Serveur MCP (`mcp.rs::speak_request`) : parametre `backend` > preference `backend` > defaut selon la langue.
+- CLI (`main.rs::handle_speak`) : `-b` > preference `backend` > defaut selon la langue. Un `-b` tape l'emporte toujours, `-b pocket` compris.
 - Langue : `-l` ou parametre `lang` > preference `lang`. Sans langue, `piper`, `qwen-native` et `kokoro` prennent `en`.
 
 ## SpeakOptions
@@ -141,9 +145,9 @@ pub struct SpeakOptions {
 }
 ```
 
-`gender` et `style` sont acceptes et transmis, mais aucun backend actuel ne les lit. `piper` ne lit pas `voice` : il choisit la voix d'apres la langue.
+`gender` et `style` sont acceptes et transmis, mais aucun backend actuel ne les lit. `piper` lit `voice` quand c'est un nom de voix piper (par exemple `fr_FR-siwis-low`) : cette voix l'emporte sur celle de la langue. Pour un autre nom, il ecrit une note sur stderr et prend la voix par defaut de la langue.
 
-`output` n'est rempli que par le CLI (`-o`). Le serveur MCP ne l'expose pas, pour qu'un agent ne puisse pas ecrire un fichier arbitraire, et il ne transmet pas `model` non plus.
+`output` n'est rempli que par le CLI : par `-o`, et par `vox bench`, qui rend chaque backend dans un fichier temporaire. Le serveur MCP ne l'expose pas, pour qu'un agent ne puisse pas ecrire un fichier arbitraire. `model` n'a pas de parametre MCP : le serveur transmet la preference `model` enregistree.
 
 **Resolution de priorite** : flags CLI / params MCP > preferences DB > valeurs par defaut.
 
@@ -153,13 +157,13 @@ Quand un utilisateur demande `-v patrick` (ou `voice: "patrick"` via MCP), le sy
 
 1. Cherche un clone nomme `patrick` dans la table `voice_clones` via `clone::resolve_voice()`
 2. Si trouve : extrait `ref_audio` et `ref_text` du clone
-3. Choisit un backend capable de cloner :
-   - CLI (`main.rs::handle_speak`) : garde `qwen-native` ou `pocket` s'il est deja selectionne, sinon bascule vers `qwen-native`
-   - Serveur MCP (`mcp.rs::tool_speak`) : bascule toujours vers `qwen-native`
+3. Choisit le backend avec `clone::speak_backend()`, la meme regle pour le CLI (`main.rs::handle_speak`) et le serveur MCP (`mcp.rs::speak_request`) :
+   - un backend donne pour cet appel (`-b`, parametre `backend`) est garde tel quel, meme s'il ne sait pas cloner
+   - sinon, le backend de la preference ou le defaut selon la langue est garde si c'est `qwen-native`, ou si c'est `pocket` et que `HF_TOKEN` est defini ; dans tous les autres cas le clone part vers `qwen-native`
 4. Met `voice = None` (ne pas passer le nom du clone comme voix au backend)
 5. Passe `ref_audio` + `ref_text` dans `SpeakOptions`
 
-Le comportement n'est donc pas identique entre le CLI et le serveur MCP. Avec `pocket`, le clonage depuis un `.wav` demande `HF_TOKEN` (poids a acces restreint) ; sans lui le backend renvoie une erreur.
+Seuls `qwen-native` et `pocket` savent cloner (`clone::can_clone`). Quand le backend donne pour l'appel est un autre, il parle avec sa propre voix et vox dit que le clone est ignore : une note sur stderr pour le CLI, une note dans le resultat de `vox_speak` pour le serveur MCP. Avec `pocket`, le clonage depuis un `.wav` demande `HF_TOKEN` (poids a acces restreint) ; sans lui le backend renvoie une erreur.
 
 ## Playback audio
 
@@ -191,7 +195,7 @@ impl Player {
 
 - `qwen-native` et `kokoro` rendent toujours un WAV temporaire puis appellent `deliver`.
 - `piper` et `pocket` ne passent par `deliver` qu'avec `-o` : ils rendent alors un WAV temporaire, appliquent le volume (`apply_wav_gain`) et le copient.
-- `say` ne passe pas par `audio.rs` : `/usr/bin/say` joue lui-meme, ou ecrit le fichier quand `-o` est donne.
+- `say` ne passe pas par `audio.rs` quand il joue au volume 1.0 : `/usr/bin/say` joue lui-meme. Avec `-o` ou un autre `--volume`, vox lui fait rendre un WAV temporaire, applique le volume (`apply_wav_gain`) et appelle `deliver`.
 
 `-o fichier.wav` ecrit donc un WAV au lieu de jouer, sur tous les backends.
 
@@ -234,7 +238,7 @@ Pendant qu'il joue, vox ecrit le spectre de l'audio dans `now-playing.json`, dan
 - Le fichier est supprime quand la lecture se termine (`Drop` de `NowPlaying`), et seulement s'il porte encore le `pid` et le `started_ms` de cette lecture : un vox ne supprime pas l'annonce d'un autre.
 - Tout est en best effort. Un echec d'analyse ou d'ecriture ne coupe jamais le son.
 
-Ce qui annonce : `piper` et `pocket` (Player), `qwen-native`, `kokoro` et les sound packs (`play_audio_blocking`). Ce qui n'annonce pas : `say`, qui joue hors de vox, les reponses de `vox chat` (lues par leur propre `Sink` dans `chat/streaming.rs`), les bips d'ecoute, et tout appel avec `-o`. Quand la requete passe par le daemon, c'est le daemon qui joue et qui annonce.
+Ce qui annonce : `piper` et `pocket` (Player), `qwen-native`, `kokoro`, `say` avec un `--volume` different de 1.0 et les sound packs (`play_audio_blocking`). Ce qui n'annonce pas : `say` au volume 1.0, qui joue hors de vox, tout ce que dit `vox chat` (message d'accueil, reponses et au revoir : dits par `/usr/bin/say`, ou lus par leur propre `Sink` dans `chat/streaming.rs` avec un clone de voix), les bips d'ecoute, et tout appel avec `-o`. Quand la requete passe par le daemon, c'est le daemon qui joue et qui annonce.
 
 ### Contrat avec le plugin
 
@@ -270,13 +274,14 @@ Un agent ne peut pas decouvrir un plugin qui n'est pas installe. `init::plugin_n
 `vox daemon start` lance un second processus vox qui garde les modeles charges. Il n'est jamais demarre automatiquement.
 
 ```bash
-vox daemon start     # --idle-timeout <secondes>, 300 par defaut
+vox daemon start     # --idle-timeout <secondes>, 300 par defaut, 0 = jamais
 vox daemon status
 vox daemon stop
 ```
 
 - Le daemon est un serveur HTTP sur `127.0.0.1:19876` (`VOX_DAEMON_PORT` change le port). Routes : `GET /health`, `POST /speak`, `POST /shutdown`.
-- Il ecrit son PID dans `daemon.pid`, dans le repertoire de config, et s'arrete apres le delai d'inactivite.
+- Il ecrit son PID dans `daemon.pid`, dans le repertoire de config, une fois le port ouvert. Sa sortie d'erreur va dans `daemon.log`, dans le meme repertoire ; le fichier est remis a zero a chaque demarrage et reste apres l'arret.
+- Il s'arrete apres le delai d'inactivite, compte depuis la fin de la derniere requete, et jamais pendant qu'une requete est servie. Avec `--idle-timeout 0` il ne s'arrete pas seul.
 - Les requetes `/speak` sont traitees une par une (`speak_lock`).
 
 Routage (`main.rs::handle_speak`) : une requete part vers le daemon quand les trois conditions sont reunies.
@@ -299,7 +304,7 @@ Le serveur MCP (`vox serve`) et `vox hear` n'utilisent pas le daemon. Le serveur
 2. Une phrase est emise quand un `.`, `!`, `?` ou `;` arrive et que le tampon fait au moins `STREAMING_MIN_CHUNK_CHARS` (60, compte en octets).
 3. Le reste est emis a la fin de la reponse (`flush`).
 
-Chaque phrase part vers un thread TTS par un canal `mpsc`, pendant que le texte continue d'arriver. Pour les reponses, le TTS est `qwen-native` avec un clone de voix, sinon `/usr/bin/say` (`chat/streaming.rs`, `TtsStrategy`). Le message d'accueil et l'au revoir passent toujours par `qwen-native` (`chat::speak_text`). L'enregistrement s'arrete quand l'utilisateur appuie sur Entree.
+Chaque phrase part vers un thread TTS par un canal `mpsc`, pendant que le texte continue d'arriver. Le TTS est `qwen-native` avec un clone de voix, sinon `/usr/bin/say` (`chat/streaming.rs`, `TtsStrategy`). Le message d'accueil et l'au revoir passent par le meme choix que les reponses. L'enregistrement s'arrete quand l'utilisateur appuie sur Entree.
 
 La boucle ecouter, reflechir, parler du serveur MCP (`vox_hear` puis `vox_speak`) n'utilise pas ce code et ne demande pas de cle API : l'assistant qui appelle les outils fait la reflexion.
 
@@ -366,9 +371,9 @@ CREATE TABLE IF NOT EXISTS voice_clones (
 | Cles de preferences invalides | Whitelist validee | `set_preference()` valide `key` contre `["backend", "voice", "lang", "rate", "gender", "style", "model", "stt_model", "pack"]` |
 | Valeurs de preferences invalides | Validation par type/enum | `gender` → `Gender::parse()`, `style` → `IntonationStyle::parse()`, `rate` → `parse::<u32>()`, `lang` → `SUPPORTED_LANGS.contains()`, `backend` → `backend::supported_backends()` |
 | Backends invalides | Liste du build courant | `supported_backends()` : `piper`, `pocket`, `qwen-native`, plus `kokoro` avec la feature `kokoro`, plus `say` sur macOS |
-| Fichier audio de clone | Existence et extension | `validate_audio()` verifie que le fichier existe et que son extension est dans `[wav, mp3, flac, ogg, m4a]` |
+| Fichier audio de clone | Existence, extension et decodage | `validate_audio()` verifie que le fichier existe et que son extension est dans `[wav, mp3, flac, ogg]`. `clone::add_clone_from_file()` le decode ensuite et refuse un fichier dont aucun son ne peut etre lu |
 | Path traversal (sound packs) | Nom reduit a un seul composant | `pack::validate_pack_name()` refuse `.`, `..`, les separateurs et les chemins absolus, pour le nom du pack comme pour les fichiers du manifeste |
-| Ecriture de fichier par un agent | `output` non expose via MCP | `mcp.rs::tool_speak` met toujours `output: None` |
+| Ecriture de fichier par un agent | `output` non expose via MCP | `mcp.rs::speak_request` met toujours `output: None` |
 | Injection shell | Pas de `sh -c` | Toutes les commandes externes passent par `std::process::Command` avec des arguments separes |
 
 ## Latence par backend
@@ -389,7 +394,7 @@ Les autres backends n'ont pas ete mesures jusqu'au premier son :
 
 Whisper `base` sur 24,6 s d'audio, Linux x86_64 12 coeurs (WSL2) avec une RTX 4070 Ti SUPER : environ 26 s avec le build CPU, environ 1,4 s avec le build CUDA, meme transcription.
 
-Chaque backend a modele garde son modele dans une variable statique du processus (`MODEL` dans `pocket.rs`, `piper.rs`, `qwen_native.rs`, `kokoro.rs` et `stt/mod.rs`). Un appel CLI est un nouveau processus : il recharge le modele a chaque fois, sauf s'il passe par le daemon. Le serveur MCP et le daemon gardent le modele d'un appel a l'autre. `piper` recharge quand la langue change, `qwen-native` et Whisper quand l'identifiant du modele change.
+Chaque backend a modele garde son modele dans une variable statique du processus (`MODEL` dans `pocket.rs`, `piper.rs`, `qwen_native.rs`, `kokoro.rs` et `stt/mod.rs`). Un appel CLI est un nouveau processus : il recharge le modele a chaque fois, sauf s'il passe par le daemon. Le serveur MCP et le daemon gardent le modele d'un appel a l'autre. `piper` recharge quand la voix change, `qwen-native` et Whisper quand l'identifiant du modele change.
 
 `VOX_TIMINGS=1` ecrit sur stderr le temps de chaque etape d'un enonce (`timing::mark`) : une ligne `[timing]` par etape, avec le temps depuis le lancement et depuis l'etape precedente. Les etapes sont marquees dans `main.rs`, `piper.rs`, `pocket.rs` et `audio.rs`.
 
@@ -419,7 +424,7 @@ Serveur JSON-RPC 2.0 sur stdio, lance par `vox serve`. Version de protocole anno
 | `vox_config_show` | Affiche les preferences courantes et la ligne `acceleration:` |
 | `vox_config_set` | Modifie une preference (params: key, value) |
 | `vox_stats` | Statistiques d'utilisation |
-| `vox_pack_list` | Liste les sound packs installes/disponibles |
+| `vox_pack_list` | Liste les sound packs installes et quelques noms a installer |
 | `vox_pack_install` | Installe un sound pack (param: name) |
 | `vox_pack_set` | Active un sound pack (param: name) |
 | `vox_pack_play` | Joue un son d'un pack (params: category, pack) |

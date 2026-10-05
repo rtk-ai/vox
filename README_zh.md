@@ -55,10 +55,10 @@ vox setup                               # 交互式配置（TUI）
 
 ## AI 助手集成
 
-一条命令配置 **14 个 AI 工具**（Claude Code、Cursor、VS Code、Zed、Codex、Gemini、Amazon Q 等）：
+一条命令在 **14 个 AI 工具**中配置本机已安装的那些（Claude Code、Cursor、VS Code、Zed、Codex、Gemini、Amazon Q 等）：
 
 ```bash
-vox init                # MCP 服务器（默认）— 所有工具
+vox init                # MCP 服务器（默认）— 已安装的工具
 vox init -m cli         # CLAUDE.md + Stop 钩子
 vox init -m all         # 所有模式
 ```

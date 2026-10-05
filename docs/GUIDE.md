@@ -146,11 +146,13 @@ vox -o note.wav "Texte a enregistrer"
 ```
 
 Sans `-l`, ou avec `-l en`, vox utilise le backend `pocket`, qui parle anglais.
-Avec une autre langue il utilise `piper`, qui a une voix par langue. Ce choix
-est le meme sur toutes les plateformes. Codes de langue : `en`, `fr`, `es`,
-`de`, `it`, `pt`, `zh`, `ja`, `ko`, `ru`, `ar`, `nl`. Au 5 octobre 2026,
-`-l ja` echoue avec `piper` : l'adresse de sa voix japonaise repond `404`
-(voir piper dans Backends en detail).
+Avec une autre langue il utilise `piper`, qui a une voix par defaut pour
+chaque langue. Ce choix est le meme sur toutes les plateformes. Codes de
+langue : `en`, `fr`, `es`, `de`, `it`, `pt`, `zh`, `ja`, `ko`, `ru`, `ar`,
+`nl`. Exception : le japonais (`ja`) utilise `qwen-native` par defaut, parce
+que `piper` n'a pas de voix japonaise. Le premier usage telecharge Qwen3-TTS
+(environ 2,5 Go) et la synthese est plus lente : 14 s pour une phrase courte,
+chargement du modele compris, sur un portable Apple A18 Pro en build Metal.
 
 Le premier appel d'un backend telecharge son modele (tailles dans Prerequis
 optionnels).
@@ -166,8 +168,7 @@ vox -l fr -o sorties/bonjour.wav "Bonjour"
 ```
 
 - vox affiche `Saved audio to <chemin>` sur la sortie d'erreur.
-- Les dossiers manquants du chemin sont crees, sauf avec le backend `say`.
-- Avec `say`, donnez une extension `.wav` pour obtenir un WAV.
+- Les dossiers manquants du chemin sont crees.
 - Un appel avec `-o` ne passe pas par le daemon.
 - L'outil MCP `vox_speak` n'a pas cette option : ecrire un fichier reste une
   commande locale.
@@ -180,11 +181,14 @@ La methode recommandee est d'utiliser vox comme serveur MCP :
 vox init
 ```
 
-Cette commande inscrit le serveur MCP de vox dans la configuration de 14
-outils IA : Claude Code, Claude Desktop, Cursor, Windsurf, VS Code / Copilot,
-Zed, Codex, OpenCode, Gemini, Amazon Q, Cline, Roo Code, Kilo Code et Amp. Le
-fichier de configuration d'un outil est cree s'il n'existe pas, que l'outil
-soit installe ou non. Redemarrez votre outil apres l'init.
+Cette commande inscrit le serveur MCP de vox dans la configuration des outils
+IA installes sur la machine, parmi 14 : Claude Code, Claude Desktop, Cursor,
+Windsurf, VS Code / Copilot, Zed, Codex, OpenCode, Gemini, Amazon Q, Cline,
+Roo Code, Kilo Code et Amp. Un outil est tenu pour installe quand son fichier
+de configuration ou son repertoire de donnees existe (`~/.claude` pour Claude
+Code) ; son fichier de configuration est cree s'il n'existe pas. Les autres
+outils sont affiches avec `not installed, skipped` et rien n'est cree pour
+eux. Redemarrez ensuite les outils que la commande nomme apres cette liste.
 
 Le serveur expose 14 outils MCP. L'assistant IA peut alors :
 - Vous parler apres avoir termine une tache (`vox_speak`)
@@ -206,7 +210,7 @@ reste en memoire d'un appel a l'autre.
 
 | Commande | Effet |
 |----------|-------|
-| `vox init` ou `vox init -m mcp` | Serveur MCP pour les 14 outils IA |
+| `vox init` ou `vox init -m mcp` | Serveur MCP pour ceux des 14 outils IA qui sont installes |
 | `vox init -m cli` | Bloc d'instructions dans le `CLAUDE.md` du dossier courant et hook `Stop` dans `.claude/settings.json` : Claude Code appelle `vox` par le shell |
 | `vox init -m skill` | Commande `/speak` pour Claude Code (`~/.claude/commands/speak.md`) |
 | `vox init -m all` | Les trois |
@@ -243,7 +247,8 @@ spectre du son joue. Pour l'installer, dans une session Claude Code :
   applique un preset.
 - Il faut Claude Code 2.1.287 ou plus recent.
 - Le backend `say` joue le son hors de vox : le visualiseur n'a alors pas de
-  spectre a afficher.
+  spectre a afficher. Avec un `--volume` autre que 1.0, c'est vox qui joue le
+  son, et le spectre est affiche.
 
 Pendant la lecture, vox ecrit le spectre du son dans `now-playing.json`, dans
 son repertoire de configuration, et supprime ce fichier a la fin. Le plugin lit
@@ -259,7 +264,7 @@ signalent aussi le plugin a l'assistant.
 # Langue par defaut (avec fr, le backend par defaut devient piper)
 vox config set lang fr
 
-# Voix par defaut : une voix pocket, une voix say ou un clone
+# Voix par defaut : une voix pocket, piper ou say, ou un clone
 vox config set voice marius
 
 # Backend par defaut, pour toutes les langues
@@ -279,50 +284,59 @@ Cles acceptees : `backend`, `voice`, `lang`, `rate`, `gender`, `style`,
   enregistre, il sert pour toutes les langues et remplace le choix automatique
   entre pocket et piper : avec `backend = pocket`, `vox -l fr "..."` utilise
   pocket, qui ne parle qu'anglais.
-- `voice` : lue par `pocket` (`alba`, `marius`, ...), par `say` (voix du
-  systeme) et pour les clones. `piper` l'ignore : sa voix depend de la langue.
+- `voice` : lue par `pocket` (`alba`, `marius`, ...), par `piper` (un nom de
+  voix piper, par exemple `fr_FR-siwis-low`), par `say` (voix du systeme) et
+  pour les clones. Quand ce n'est pas un nom de voix piper, `piper` affiche
+  une note et prend la voix par defaut de la langue.
 - `rate` : debit en mots par minute, pour `say` uniquement.
 - `gender` et `style` : enregistres, mais aucun backend actuel ne les utilise.
   Il en va de meme pour les drapeaux `--gender` et `--style`.
 - `model` et `stt_model` : voir Modeles personnalises.
 - `pack` : le sound pack actif, regle par `vox pack set`.
 
-Un drapeau de la ligne de commande passe avant la preference. Exception :
-`-b pocket` ne remplace pas une preference `backend` enregistree. Dans ce cas,
-changez la preference (`vox config set backend pocket`).
+Un drapeau de la ligne de commande passe avant la preference.
 
 ## Cloner votre voix
 
-Le clonage passe par le backend `qwen-native`.
+Le clonage passe par le backend `qwen-native`, ou par `pocket` quand
+`HF_TOKEN` est defini.
 
 ```bash
-# Depuis un fichier WAV existant
+# Depuis un fichier audio existant (wav, mp3, flac ou ogg)
 vox clone add mavoix --audio ~/enregistrement.wav --text "Transcription exacte"
 
 # Enregistrer depuis le micro
 vox clone record mavoix --duration 8 --text "Ce que je dis"
 
 # Utiliser le clone
-vox -b qwen-native -l fr -v mavoix "Ceci parle avec ma voix clonee"
+vox -l fr -v mavoix "Ceci parle avec ma voix clonee"
 
 # Lister, supprimer
 vox clone list
 vox clone remove mavoix
 ```
 
-- `vox clone add` enregistre le chemin du fichier sans le copier : ne le
-  deplacez pas. `vox clone record` ecrit `clones/<nom>.wav` dans le repertoire
-  de configuration.
-- Le fichier doit etre un WAV. `vox clone add` accepte aussi les extensions
-  `mp3`, `flac`, `ogg` et `m4a`, mais la synthese echoue ensuite avec
-  `Failed to open WAV file`.
-- Avec `-v <clone>`, vox passe de lui-meme a `qwen-native`, sauf quand le
-  backend courant est `pocket`, c'est-a-dire par defaut sans `-l` ou avec
-  `-l en`. `pocket` ne clone qu'avec `HF_TOKEN` et ses poids a acces restreint
-  (licence a accepter sur https://huggingface.co/kyutai/pocket-tts). Sans eux il
-  s'arrete avec `Voice cloning from a WAV needs the gated weights`. D'ou le
-  `-b qwen-native` de l'exemple.
-- Par le serveur MCP, un clone utilise toujours `qwen-native`.
+- `vox clone add` accepte un fichier `wav`, `mp3`, `flac` ou `ogg`. Il le
+  convertit en WAV mono, l'ecrit dans `clones/<nom>.wav` du repertoire de
+  configuration et enregistre ce chemin absolu : le clone ne depend plus du
+  fichier d'origine. Un fichier `.m4a` est refuse avec
+  `Unsupported audio format`. `vox clone record` ecrit lui aussi
+  `clones/<nom>.wav`.
+- Le nom est un nom simple, pas un chemin. Un nom deja pris est refuse, quelle
+  que soit la casse (`MaVoix` est refuse quand `mavoix` existe) : supprimez
+  d'abord l'ancien avec `vox clone remove`. `-v` et `vox clone remove`
+  attendent le nom tel qu'il a ete enregistre, casse comprise.
+- Sans `-b`, `-v <clone>` utilise `qwen-native`. Une exception : quand le
+  backend courant est `pocket` (par defaut sans `-l` ou avec `-l en`, ou par la
+  preference `backend`) et que `HF_TOKEN` est defini, le clone est dit par
+  `pocket`, avec ses poids a acces restreint (licence a accepter sur
+  https://huggingface.co/kyutai/pocket-tts).
+- Avec `-b`, le backend demande est utilise tel quel. `-b pocket` sans
+  `HF_TOKEN` s'arrete avec `Voice cloning from a WAV needs the gated weights`.
+  Un backend qui ne clone pas (`piper`, `say`) dit le texte avec sa propre
+  voix et affiche une note :
+  `the piper backend cannot clone voices, so 'mavoix' is ignored`.
+- Le serveur MCP (`vox_speak`) applique la meme regle.
 - Langues de `qwen-native` avec un clone : `en`, `fr`, `es`, `de`, `it`, `pt`,
   `zh`, `ja`, `ko`, `ru`. Sans `-l`, il prend `en`.
 
@@ -344,7 +358,7 @@ Les packs sont des sons courts ranges par categorie, au format des packs
 peon-ping.
 
 ```bash
-vox pack list                  # Packs installes et packs installables
+vox pack list                  # Packs installes et noms suggeres
 vox pack install peon          # Installer
 vox pack set peon              # Activer
 vox pack play greeting         # Jouer un son de la categorie
@@ -353,15 +367,19 @@ vox pack remove peon           # Desinstaller
 ```
 
 Categories : `greeting` (defaut), `acknowledge`, `complete`, `error`,
-`permission`, `annoyed`. `vox pack play` choisit un son au hasard dans la
-categorie et affiche sa replique.
+`permission`, `resource_limit`, `annoyed`. Une categorie d'un pack qui n'a
+pas de nom dans cette liste garde son nom d'origine (`session.end`,
+`task.progress`) ; `vox pack list` affiche les categories de chaque pack
+installe. `vox pack play` choisit un son au hasard dans la categorie et
+affiche sa replique.
 
-Packs proposes a l'installation : `peon`, `peon_fr`, `peon_pl`, `peasant`,
-`peasant_fr`, `sc_kerrigan`, `sc_battlecruiser`, `ra2_soviet_engineer`.
-
-Etat au 5 octobre 2026 : `vox pack install peon` echoue avec
-`Failed to download manifest: HTTP 404 Not Found`. L'adresse d'ou vox
-telecharge les packs (depot peon-ping, dossier `packs/`) ne repond plus.
+`vox pack install <nom>` cherche le pack dans le registre peon-ping, puis
+telecharge ses sons depuis le depot GitHub que le registre indique. Tout pack
+du registre s'installe : la liste est sur https://openpeon.com/packs.
+`vox pack list` n'en suggere que huit : `peon`, `peon_fr`, `peon_pl`,
+`peasant`, `peasant_fr`, `sc_kerrigan`, `sc_battlecruiser`,
+`ra2_soviet_engineer`. Une installation interrompue est reprise depuis le
+debut par la suivante.
 
 ## Conversation vocale (macOS)
 
@@ -379,11 +397,14 @@ repond, vox dit la reponse phrase par phrase. Pour terminer, dites "au revoir",
 
 - Les reponses sont dites par `say`. Avec `-v <clone>`, elles le sont par
   `qwen-native` avec votre voix clonee.
-- Le message d'accueil est dit par `qwen-native` dans les deux cas : au premier
-  lancement, vox telecharge ce modele (environ 2,3 Go).
+- Le message d'accueil et l'au revoir sont dits de la meme facon que les
+  reponses. Sans clone, `vox chat` ne charge pas `qwen-native`.
 - `-l` fixe la langue de la transcription et, avec un clone, celle de la
   synthese. Les messages affiches, le message d'accueil et la consigne donnee
-  a Claude sont en francais quelle que soit sa valeur.
+  a Claude la suivent : en francais avec `-l fr`, en anglais sans `-l` ou avec
+  `-l en`. Pour une autre langue, ils restent en anglais et la consigne
+  demande a Claude de repondre dans cette langue. Sans `-l`, la preference
+  `lang` s'applique.
 
 Sur les autres plateformes, ou sans cle, utilisez la boucle MCP (`vox_hear`
 puis `vox_speak`) decrite plus haut.
@@ -445,15 +466,19 @@ phrase de 3 secondes.
 
 ### piper (defaut pour les autres langues)
 - Modeles ONNX. Il tourne sur le CPU dans tous les builds.
-- Une voix par langue, choisie par `-l` : `fr`, `es`, `de`, `it`, `pt`, `zh`,
-  `ko`, `ru`, `ar`, `nl`, `en`. Un autre code donne la voix anglaise. `-v` est
-  ignore.
-- Le code prevoit aussi une voix japonaise (`ja`), mais son adresse de
-  telechargement repond `404` (verifie le 5 octobre 2026) : `vox -l ja "..."`
-  s'arrete avec `server refused to send ja_JP-kokoro-medium.onnx`.
-  `qwen-native` accepte `ja`.
-- La voix d'une langue est telechargee a son premier usage, dans `piper/` du
-  repertoire de configuration.
+- Une voix par defaut pour chaque langue, choisie par `-l` : `fr`, `es`, `de`,
+  `it`, `pt`, `zh`, `ko`, `ru`, `ar`, `nl`, `en`. Un autre code donne la voix
+  anglaise. `vox -b piper --list-voices` liste ces 11 voix.
+- `-v <nom de voix piper>` choisit une autre voix du depot
+  rhasspy/piper-voices, quelle que soit la langue donnee :
+  `vox -l fr -v fr_FR-siwis-low "Bonjour"`. Un nom qui n'a pas la forme
+  `<langue>_<REGION>-<nom>-<qualite>`, une voix `pocket` par exemple, n'est
+  pas utilise : vox affiche une note et prend la voix par defaut de la langue.
+- Pas de voix japonaise : `vox -l ja "..."` utilise donc `qwen-native` par
+  defaut. `vox -b piper -l ja "..."` s'arrete aussitot, sans telechargement,
+  avec `piper cannot speak Japanese`.
+- Une voix est telechargee a son premier usage, dans `piper/` du repertoire de
+  configuration.
 - La phrase entiere est synthetisee avant d'etre jouee. La sortie audio est
   ouverte pendant le chargement du modele.
 - Mesure en francais : environ 0,75 s sans daemon, 0,26 a 0,32 s avec le
@@ -469,8 +494,9 @@ phrase de 3 secondes.
   `Unsupported language for qwen-native`.
 - GPU avec un build Metal ou CUDA, CPU sinon (voir Lire la ligne
   `acceleration:`). Au chargement du modele, vox affiche le peripherique
-  utilise : `Using device: ...`. Cette ligne n'apparait pas quand la demande
-  passe par le daemon, dont la sortie n'est pas affichee.
+  utilise : `Using device: ...`. Quand la demande passe par le daemon, cette
+  ligne n'est pas affichee sur le terminal : elle est ecrite dans
+  `daemon.log` (voir Daemon).
 - La phrase entiere est generee avant d'etre jouee.
 - Mesures du 5 octobre 2026, portable Apple A18 Pro (8 Go), build Metal, modele
   deja telecharge, temps total de la commande avec `-o`, un essai par mesure :
@@ -509,7 +535,7 @@ daemon est un processus qui garde les modeles en memoire entre deux appels.
 
 ```bash
 vox daemon start     # Lance le daemon en arriere-plan
-vox daemon status    # Etat, duree de fonctionnement, modeles charges
+vox daemon status    # Etat, duree de fonctionnement, journal, modeles charges
 vox daemon stop      # Arrete le daemon
 ```
 
@@ -519,10 +545,14 @@ vox daemon stop      # Arrete le daemon
   `vox hear` et le serveur MCP n'y passent pas.
 - Un modele est charge a la premiere demande qui l'utilise, pas au demarrage du
   daemon : le premier appel paie encore le chargement.
-- `vox daemon status` ne liste que `pocket` et `qwen-native` : avec une voix
-  `piper` seule en memoire, il affiche `(none loaded yet)`.
+- `vox daemon status` liste les modeles `pocket`, `piper` et `qwen-native` en
+  memoire, pas `kokoro`.
 - Il s'arrete seul apres 300 secondes sans demande.
-  `vox daemon start --idle-timeout 1800` change ce delai.
+  `vox daemon start --idle-timeout 1800` change ce delai ;
+  `--idle-timeout 0` supprime l'arret automatique.
+- Sa sortie d'erreur est ecrite dans `daemon.log`, dans le repertoire de
+  configuration ; `vox daemon status` en donne le chemin (ligne `Log:`). Le
+  fichier est remis a zero a chaque `vox daemon start` et reste apres l'arret.
 - Il ecoute sur `127.0.0.1:19876`. `VOX_DAEMON_PORT` change le port ; la
   variable doit avoir la meme valeur pour le daemon et pour les commandes `vox`.
 - Les demandes sont jouees l'une apres l'autre.
@@ -553,6 +583,7 @@ memoire, et avec `say`.
 | `VOX_DAEMON_PORT` | Port du daemon | `19876` |
 | `HF_TOKEN` | Jeton HuggingFace, pour le clonage avec `pocket` | Aucun |
 | `ANTHROPIC_API_KEY` | Cle API Claude (requise pour `vox chat`) | Aucun |
+| `VOX_CHAT_MODEL` | Modele Claude utilise par `vox chat` | `claude-haiku-4-5` |
 
 `VOX_GPU`, lue par le script d'installation, est decrite dans Installation.
 
@@ -641,8 +672,8 @@ model_id = "openai/whisper-base"
 Les modeles sont telecharges automatiquement depuis HuggingFace Hub au premier
 appel. Changer de modele en cours de route n'exige pas de redemarrer le serveur
 MCP ni le daemon : le modele en memoire est remplace quand l'identifiant
-demande differe. Par le serveur MCP, `vox_speak` ne lit pas la preference
-`model` : pour changer le modele de `qwen-native`, modifiez `models.toml`.
+demande differe. Par le serveur MCP, `vox_speak` applique la preference
+`model`, comme la ligne de commande.
 
 Modeles Whisper mesures a chaud sur 11,85 s de francais (Apple M2), temps de
 transcription et memoire vive : `tiny` 0,93 s / 350 Mo — `base` 1,52 s /
@@ -659,7 +690,7 @@ macOS et `~/.config/vox` sur Linux ; `VOX_CONFIG_DIR` le remplace.
 <repertoire de configuration>/
   vox.db              # SQLite : preferences, clones, statistiques d'usage
   models.toml         # Optionnel : vos modeles par defaut
-  clones/             # Enregistrements de `vox clone record` (.wav)
+  clones/             # WAV des clones (`vox clone add`, `vox clone record`)
   packs/              # Sound packs installes
     peon/
       manifest.json
@@ -671,6 +702,7 @@ macOS et `~/.config/vox` sur Linux ; `VOX_CONFIG_DIR` le remplace.
     voices.bin
   now-playing.json    # Spectre du son, present seulement pendant la lecture
   daemon.pid          # Present tant que le daemon tourne
+  daemon.log          # Sortie du daemon, remise a zero a chaque demarrage
 ```
 
 Les poids de `pocket`, de Whisper et de `qwen-native` sont dans le cache
@@ -712,24 +744,21 @@ ou voyez kokoro dans Backends en detail.
 Retirez `-b say`. Sans `-b`, vox utilise `pocket` (anglais) ou `piper` (autres
 langues), qui existent sur toutes les plateformes.
 
-### "server refused to send ja_JP-kokoro-medium.onnx"
-La voix japonaise de `piper` n'est plus a l'adresse que vox utilise (`404`,
-verifie le 5 octobre 2026). `vox -l ja` et une preference `lang = ja` echouent
-donc avec le backend par defaut. Ajoutez `-b qwen-native`, qui accepte `ja`.
+### "piper cannot speak Japanese"
+`piper` n'a pas de voix japonaise. Le message apparait quand `piper` est
+demande pour du japonais, par `-b piper` ou par une preference
+`backend = piper`. Sans l'un ni l'autre, `vox -l ja` utilise `qwen-native`.
+Retirez le `-b piper`, ou passez `-b qwen-native`.
 
 ### "Voice cloning from a WAV needs the gated weights"
-Le clone a ete envoye au backend `pocket` sans `HF_TOKEN`. Ajoutez
-`-b qwen-native` a la commande (voir Cloner votre voix).
+Le backend `pocket` a recu un clone sans `HF_TOKEN`, ce qui arrive avec
+`-b pocket`. Retirez `-b pocket` : le clone est alors dit par `qwen-native`
+(voir Cloner votre voix).
 
 ### Le premier appel est long
 Le premier appel d'un backend telecharge son modele (tailles dans Prerequis
 optionnels). `pocket` et `piper` l'annoncent sur la sortie d'erreur. Le
 telechargement d'une voix piper est abandonne au bout de 300 secondes.
-
-Sur macOS, `pocket` affiche `First run: downloading the pocket-tts model` a
-chaque appel, meme quand le modele est deja telecharge : il cherche le cache
-dans `~/Library/Caches/huggingface/hub` alors que le modele est dans
-`~/.cache/huggingface/hub`. Le modele n'est pas telecharge de nouveau.
 
 ### Backend lent
 
@@ -750,8 +779,8 @@ dans `~/Library/Caches/huggingface/hub` alors que le modele est dans
 
 Pour de meilleurs resultats avec le voice cloning :
 
-- **Format** : WAV 16-bit, mono, 16-48 kHz. Les autres formats ne sont pas lus
-  a la synthese.
+- **Format** : WAV 16-bit, mono, 16-48 kHz. `vox clone add` convertit aussi
+  les fichiers `mp3`, `flac` et `ogg`.
 - **Duree** : 5-8 secondes de parole continue
 - **Contenu** : parler naturellement, pas trop vite, avec des phrases completes
 - **Environnement** : calme, sans bruit de fond, sans echo
@@ -795,7 +824,7 @@ Les durees renvoient aux mesures de Backends en detail.
 | Usage | Backend | Pourquoi |
 |-------|---------|----------|
 | Retour vocal court en anglais | `pocket` (defaut) | Sur le CPU, joue pendant qu'il genere : premier son apres 0,18 a 0,55 s |
-| Autres langues | `piper` (defaut avec `-l` autre que `en`) | Une voix par langue, sur le CPU : premier son apres 0,75 s environ, 0,26 a 0,32 s avec le daemon |
+| Autres langues | `piper` (defaut avec `-l` autre que `en`) | Une voix par defaut pour chaque langue, sur le CPU : premier son apres 0,75 s environ, 0,26 a 0,32 s avec le daemon |
 | Texte long en anglais | `pocket` | Le son part avant la fin de la generation : 0,81 s pour 15 s d'audio |
 | Clonage de voix | `qwen-native` | Fonctionne sans jeton ; `pocket` demande `HF_TOKEN` |
 | Voix du systeme macOS | `say` | Aucun modele a telecharger |

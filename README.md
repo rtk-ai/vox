@@ -11,7 +11,8 @@
 <p align="center">
   No Python and no cloud service: synthesis and transcription run on your machine.
   Several TTS backends, Whisper speech-to-text, an MCP server with 14 tools,
-  and one command that configures 14 AI tools.
+  and one command that configures the AI tools installed on your machine
+  (14 supported).
 </p>
 
 <p align="center">
@@ -68,10 +69,15 @@ only in a build compiled with `--features kokoro` (see below).
 > speakers); Kyutai's per-language checkpoints (fr/de/es/it/pt) need upstream
 > support in the pocket-tts crate and are not wired up.
 >
-> ² `piper` has one voice for each of en, fr, es, de, it, pt, zh, ko, ru, ar
-> and nl. A voice (~60 MB) is downloaded the first time its language is used.
-> The code also names a Japanese voice, but its download address answers
-> `404` (checked on 2026-10-05), so `vox -l ja` fails with `piper`.
+> ² `piper` has one default voice for each of en, fr, es, de, it, pt, zh, ko,
+> ru, ar and nl, chosen by `-l`. `-v` with the name of another voice of
+> [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) selects
+> that voice, for example `-v fr_FR-siwis-low`; with a value that is not a
+> piper voice name, vox prints a note and uses the default voice of the
+> language. A voice is downloaded the first time it is used (~60 MB for a
+> `medium` voice). `piper` has no Japanese voice, so Japanese uses
+> `qwen-native` by default; `-b piper -l ja` fails at once with a message
+> that says so.
 >
 > ³ `qwen-native` accepts en, fr, es, de, it, pt, zh, ja, ko and ru. It loads
 > the Qwen3-TTS Base model, which has no preset voices: it is the backend for
@@ -102,8 +108,9 @@ backend also downloads its model.
 `vox daemon stop`). While it runs, `vox "..."` calls that use `pocket`, `piper`,
 `qwen-native` or `kokoro` go through it, except calls with `-o`. It is not
 started automatically, and it stops by itself after 300 seconds without a
-request (`vox daemon start --idle-timeout <seconds>`). The MCP server does not
-use the daemon: it keeps the models loaded in its own process.
+request (`vox daemon start --idle-timeout <seconds>`; `0` means no timeout).
+The MCP server does not use the daemon: it keeps the models loaded in its own
+process.
 
 `VOX_TIMINGS=1` prints the time of each step of an utterance on stderr.
 
@@ -278,6 +285,7 @@ The default backend depends on the language, not on the platform:
 | Language | Default backend | First use |
 |----------|----------------|-----------|
 | English, or no `-l` | `pocket` | Downloads the public weights (~226 MB) |
+| Japanese (`-l ja`) | `qwen-native` | Downloads Qwen3-TTS (about 2.5 GB). piper has no Japanese voice. Slower than the other two: 14 s for a short sentence, model load included, on an Apple A18 Pro laptop with the Metal build |
 | Any other language | `piper` | Downloads the voice of that language (~60 MB). The pocket checkpoint is English-only |
 
 A stored backend preference (`vox config set backend ...`) replaces both
@@ -322,12 +330,13 @@ AI agents use the command-line flags instead: `vox -l fr "text"`.
 
 ## AI assistant integration
 
-One command writes the vox MCP server into the configuration of **14 AI tools**:
-Claude Code, Claude Desktop, Cursor, Windsurf, VS Code / Copilot, Zed, Codex,
-OpenCode, Gemini, Amazon Q, Cline, Roo Code, Kilo Code and Amp.
+One command writes the vox MCP server into the configuration of the AI tools
+found on your machine. It knows **14 AI tools**: Claude Code, Claude Desktop,
+Cursor, Windsurf, VS Code / Copilot, Zed, Codex, OpenCode, Gemini, Amazon Q,
+Cline, Roo Code, Kilo Code and Amp.
 
 ```bash
-vox init                # MCP server (default), for the 14 tools
+vox init                # MCP server (default), for the installed tools among the 14
 vox init -m cli         # CLAUDE.md block + Stop hook, in the current directory
 vox init -m skill       # /speak slash command for Claude Code
 vox init -m all         # all of the above
@@ -335,12 +344,13 @@ vox init -m all         # all of the above
 
 | Mode | What it writes | What the agent gets |
 |------|----------------|---------------------|
-| `mcp` | A `vox serve` entry in each tool's MCP configuration, in your home directory. The file is created when it does not exist, whether or not the tool is installed | 14 tools: `vox_speak`, `vox_hear`, `vox_list_voices`, clones, preferences, statistics and sound packs |
+| `mcp` | A `vox serve` entry in the MCP configuration of each tool found on the machine, in your home directory. A tool counts as installed when its configuration file or its own directory exists; the others are reported as `not installed, skipped` and nothing is written for them | 14 tools: `vox_speak`, `vox_hear`, `vox_list_voices`, clones, preferences, statistics and sound packs |
 | `cli` | A block in `CLAUDE.md` and a Stop hook in `.claude/settings.json`, both in the current directory | An instruction to run `vox "..."` after a significant task. The hook says a short phrase ("Done.") when Claude Code stops |
 | `skill` | `~/.claude/commands/speak.md` | The `/speak` command |
 
 Running `vox init` again is safe: what is already configured is left as it is.
-Restart the AI tool afterwards.
+After its report, `vox init` names the tools to restart, or says that nothing
+changed.
 
 The MCP server starts with `vox serve` (stdio); `vox init` writes that command
 for you. With the MCP tools an agent can hold a voice conversation by itself:
@@ -371,9 +381,9 @@ draws the spectrum of the voice above the prompt while vox speaks:
 The bars are the spectrum of the audio, not an animation. While it plays, vox
 writes the spectrum of the sound to `now-playing.json` in its config directory
 and removes the file afterwards; the plugin reads that file. It works with the
-MCP tools, with `vox ...` run from the shell, and with the Stop hook. The `say`
-backend plays outside vox and writes nothing, so the plugin shows no spectrum
-for it.
+MCP tools, with `vox ...` run from the shell, and with the Stop hook. At the
+default volume, the `say` backend plays outside vox and writes nothing, so the
+plugin shows no spectrum for it.
 
 In a Claude Code session (2.1.287 or later):
 
@@ -399,7 +409,7 @@ Details in [plugins/vox](plugins/vox/README.md).
 ```bash
 vox clone add patrick --audio ~/voice.wav --text "Transcription"
 vox clone record myvoice --duration 10
-vox -b qwen-native -v patrick "This speaks with your voice."
+vox -v patrick "This speaks with your voice."
 vox clone list
 vox clone remove patrick
 ```
@@ -407,16 +417,17 @@ vox clone remove patrick
 Cloning works with `qwen-native`, with no setup, and with `pocket`, which needs
 `HF_TOKEN` (see [Backends](#backends)). A 3-second reference clip is enough.
 
-`vox -v <clone>` keeps the selected backend when it is one of these two, and
-switches to `qwen-native` otherwise. The default backend for English is
-`pocket`: without `HF_TOKEN`, `vox -v patrick "..."` stops there with an error
-that asks for the token. Pass `-b qwen-native`, as above.
+Without `-b`, `vox -v <clone>` uses `pocket` when `pocket` is the selected
+backend and `HF_TOKEN` is set, and `qwen-native` in every other case. A `-b` on
+the command line is respected: `-b pocket` without `HF_TOKEN` stops with an
+error that asks for the token, and a backend that cannot clone (`piper` or
+`say`, for example) prints a note and ignores the clone.
 
-`clone add` stores the path of your audio file, not a copy: keep the file in
-place. Give it a WAV file: `clone add` also accepts `.mp3`, `.flac`, `.ogg` and
-`.m4a` names, but both backends read the reference as WAV and fail on the
-others. `clone record` saves its recording, a WAV, in the `clones/` folder of
-the config directory.
+`clone add` reads a WAV, MP3, FLAC or Ogg file, converts it to WAV and keeps
+that copy in the `clones/` folder of the config directory: the original file
+can be moved or deleted afterwards. A `.m4a` file is refused. So is a name that
+is already taken, whatever its case: remove that clone first. `clone record`
+saves its recording, a WAV, in the same folder.
 
 ## Preferences
 
@@ -430,9 +441,7 @@ vox config reset
 ```
 
 The keys are `backend`, `voice`, `lang`, `rate`, `gender`, `style`, `model`,
-`stt_model` and `pack`. A flag on the command line wins over a preference,
-with one exception: vox cannot tell `-b pocket` from no `-b` at all, so a stored
-backend preference, or a language other than English, still replaces it.
+`stt_model` and `pack`. A flag on the command line wins over a preference.
 
 - `lang` accepts en, fr, es, de, it, pt, zh, ja, ko, ru, ar and nl.
 - `rate` (words per minute) applies to `say` only, `model` to `qwen-native` only.
@@ -445,19 +454,20 @@ was built (Metal, CUDA or CPU).
 ## Sound packs
 
 ```bash
-vox pack list                      # Installed packs, and the names that can be installed
+vox pack list                      # Installed packs, and a few names to install
 vox pack install peon              # Download a pack
 vox pack set peon                  # Make it the active pack
 vox pack play greeting             # Play a random sound of a category
 vox pack remove peon               # Delete it
 ```
 
-Packs use the peon-ping format (see `vox pack --help`). The categories are
-`greeting`, `acknowledge`, `complete`, `error`, `permission` and `annoyed`.
-
-Checked on 2026-10-05: `vox pack install` fails with `HTTP 404`. The packs are
-no longer at the address vox downloads them from (the `packs/` directory of the
-peon-ping repository). Packs that are already installed still play.
+`vox pack install` takes the name of a pack of the peon-ping registry (browse
+them at https://openpeon.com/packs); `vox pack list` suggests a few of them.
+Packs are published in the CESP format (`openpeon.json`), which vox converts
+when it installs them. The categories are `greeting`, `acknowledge`,
+`complete`, `error`, `permission`, `resource_limit` and `annoyed`. A pack can
+carry other categories, which keep their CESP name (`session.end`,
+`task.progress`).
 
 ## Save to a file instead of speaking
 
@@ -469,9 +479,7 @@ ffmpeg -i note.wav -c:a libopus -b:a 32k note.ogg   # convert it afterwards, her
 ```
 
 `-o` writes a WAV file instead of playing, on every backend and every platform.
-A call with `-o` does not go through the daemon. With `say`, give the file a
-`.wav` name: for another extension the macOS `say` command chooses the format
-(AIFF for `.aiff`, for example).
+A call with `-o` does not go through the daemon.
 
 `--output` exists on the command line only. The MCP `vox_speak` tool has no
 such parameter, so an agent cannot use it to write to a path of its choice.
@@ -546,7 +554,10 @@ vox chat -l fr                     # Talk with Claude
 
 `vox chat` records until you press Enter, transcribes with Whisper, sends the
 text to the Claude API and speaks the answer. Its prompts and its system prompt
-are in French.
+follow `-l`, or the stored `lang` preference: English by default, French for
+`fr`. For another language they stay in English and Claude is asked to answer
+in that language. The model is `claude-haiku-4-5`; `VOX_CHAT_MODEL` names
+another one.
 
 ## Data
 
@@ -558,13 +569,14 @@ pack from GitHub.
 ```
 ~/.config/vox/           # Linux; ~/Library/Application Support/vox/ on macOS
   vox.db                 # SQLite: preferences, voice clones, usage log
-  clones/                # Recordings made by `vox clone record`
+  clones/                # Reference audio of the voice clones (WAV)
   packs/                 # Installed sound packs
   piper/                 # Piper voices
   pocket/                # Configuration of the pocket model
   models.toml            # Optional: your own model ids
   now-playing.json       # Only while vox plays: the spectrum for the visualizer
   daemon.pid             # Only while the daemon runs
+  daemon.log             # Output of the daemon, emptied at each start
 ```
 
 The Whisper, pocket and Qwen3-TTS weights are in the Hugging Face cache
@@ -578,6 +590,7 @@ The Whisper, pocket and Qwen3-TTS weights are in the Hugging Face cache
 | `VOX_DAEMON_PORT` | Port of the daemon on 127.0.0.1 (default 19876) |
 | `HF_TOKEN` | Hugging Face token, needed only for voice cloning with `pocket` |
 | `ANTHROPIC_API_KEY` | Needed only by `vox chat` |
+| `VOX_CHAT_MODEL` | Claude model used by `vox chat` (default `claude-haiku-4-5`) |
 
 ## Documentation
 

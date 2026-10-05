@@ -55,10 +55,10 @@ vox setup                               # 대화형 설정 (TUI)
 
 ## AI 어시스턴트 통합
 
-하나의 명령으로 **14개 AI 도구** 설정 (Claude Code, Cursor, VS Code, Zed, Codex, Gemini, Amazon Q 등):
+하나의 명령으로 **14개 AI 도구** 중 이 컴퓨터에 설치된 도구를 설정 (Claude Code, Cursor, VS Code, Zed, Codex, Gemini, Amazon Q 등):
 
 ```bash
-vox init                # MCP 서버 (기본) — 모든 도구
+vox init                # MCP 서버 (기본) — 설치된 도구
 vox init -m cli         # CLAUDE.md + Stop 훅
 vox init -m all         # 모든 모드
 ```

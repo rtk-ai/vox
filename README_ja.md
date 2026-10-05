@@ -43,7 +43,7 @@ GPUビルド（Metal、CUDA）、ソースからのビルド、動作要件に�
 
 Python はどこにも使われていません。音声認識は Whisper で、全プラットフォームで動作します（`vox hear`）。
 
-日本語について：`vox -l ja` は `piper` を選びますが、コードが指定する日本語音声のダウンロード先は `404` を返すため失敗します（2026-10-05 に確認）。日本語には `-b qwen-native` を使ってください。
+日本語について：`piper` には日本語の音声がないため、`vox -l ja` は既定で `qwen-native` を使います。初回は Qwen3-TTS（約 2.5 GB）をダウンロードします。
 
 ## クイックスタート
 
@@ -57,10 +57,10 @@ vox setup                               # インタラクティブ設定（TUI�
 
 ## AIアシスタント統合
 
-1つのコマンドで**14のAIツール**を設定（Claude Code、Cursor、VS Code、Zed、Codex、Gemini、Amazon Qなど）：
+1つのコマンドで、**14のAIツール**のうちこのマシンにインストールされているものを設定（Claude Code、Cursor、VS Code、Zed、Codex、Gemini、Amazon Qなど）：
 
 ```bash
-vox init                # MCPサーバー（デフォルト）— 全ツール
+vox init                # MCPサーバー（デフォルト）— インストール済みのツール
 vox init -m cli         # CLAUDE.md + Stopフック
 vox init -m all         # 全モード
 ```
