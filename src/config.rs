@@ -6,10 +6,13 @@ pub const DEFAULT_BACKEND: &str = "pocket";
 
 /// Language-aware default backend, used when neither the CLI flag nor a
 /// stored preference selects one. The pocket checkpoint is English-only, so
-/// non-English languages fall back to piper (per-language voices).
+/// non-English languages fall back to piper (per-language voices). Japanese
+/// goes to qwen-native: piper has no Japanese voice vox can phonemize, and
+/// qwen-native is the one backend that speaks it on every platform.
 pub fn default_backend_for_lang(lang: Option<&str>) -> &'static str {
     match lang {
         None | Some("en") => DEFAULT_BACKEND,
+        Some("ja") => "qwen-native",
         Some(_) => "piper",
     }
 }

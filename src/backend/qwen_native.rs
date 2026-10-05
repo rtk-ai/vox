@@ -113,7 +113,14 @@ impl TtsBackend for QwenNativeBackend {
         // after: the Base checkpoint has no preset speakers and `synthesize`
         // takes no language, so the language only reaches the model through
         // the voice-clone path. Say so instead of ignoring the flag silently.
-        if opts.lang.is_some() && ref_audio_path.is_none() {
+        //
+        // Not for Japanese: it comes here by default, because piper cannot
+        // speak it, and the advice to use piper would send the user back to
+        // the backend that refused them.
+        if let Some(code) = opts.lang.as_deref()
+            && code != "ja"
+            && ref_audio_path.is_none()
+        {
             eprintln!(
                 "Warning: -l/--lang has no effect on qwen-native without a voice clone \
                  (the Base model infers the language from the text). \
