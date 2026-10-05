@@ -86,7 +86,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ matrix.features }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # The compute capability is part of the key: the kernel build keeps
+          # its compiled .ptx files when only CUDA_COMPUTE_CAP changes, so a
+          # cache from another capability would pass without compiling
+          # anything for this one. Keep "cc80" equal to CUDA_COMPUTE_CAP below.
+          key: ${{ runner.os }}-${{ matrix.features }}${{ matrix.cuda == true && '-cc80' || '' }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
         run: cargo build ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
