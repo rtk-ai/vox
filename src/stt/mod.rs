@@ -1,8 +1,10 @@
 //! Speech-to-text — Whisper running locally on candle (pure Rust, all platforms).
 //!
 //! The model is downloaded from the Hugging Face hub on first use and kept
-//! warm in a process-wide cache so that repeated `vox hear` calls inside the
-//! daemon or MCP server do not reload weights.
+//! in a process-wide cache, so a process that transcribes more than once (the
+//! MCP server's `vox_hear`, the turns of `vox chat`) loads the weights once.
+//! Each `vox hear` command is a new process and loads them again: the daemon
+//! only speaks and has no transcription route.
 
 pub mod whisper;
 
