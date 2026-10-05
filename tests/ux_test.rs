@@ -10,7 +10,10 @@ use predicates::prelude::*;
 
 #[test]
 fn empty_text_shows_helpful_error() {
+    // A database of the test's own: without it this opened the user's.
+    let tmp = tempfile::NamedTempFile::new().unwrap();
     cargo_bin_cmd!("vox")
+        .env("VOX_DB_PATH", tmp.path())
         .args(["  ", "  "])
         .assert()
         .failure()

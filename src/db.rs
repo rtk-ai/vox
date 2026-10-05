@@ -21,6 +21,59 @@ pub struct Preferences {
     pub pack: Option<String>,
 }
 
+impl Preferences {
+    /// The preferences as `vox config show` and the `vox_config_show` MCP tool
+    /// print them. Built once so that a preference added later shows in both.
+    pub fn summary_lines(&self) -> Vec<String> {
+        let text = |value: &Option<String>| value.clone().unwrap_or_else(|| "(default)".into());
+        vec![
+            format!("backend: {}", text(&self.backend)),
+            format!("voice:   {}", text(&self.voice)),
+            format!("lang:    {}", text(&self.lang)),
+            format!("rate:    {}", text(&self.rate.map(|r| r.to_string()))),
+            format!("gender:  {}", text(&self.gender)),
+            format!("style:   {}", text(&self.style)),
+            format!("model:   {}", text(&self.model)),
+            format!("stt_model: {}", text(&self.stt_model)),
+            format!("pack:    {}", self.pack.as_deref().unwrap_or("(none)")),
+        ]
+    }
+}
+
+/// Every preference `set_preference` accepts, in the order `vox config show`
+/// prints them. The help of `vox config set` and the description of the MCP
+/// `vox_config_set` tool are written from this list, so a key accepted here
+/// is a key documented there.
+pub const PREFERENCE_KEYS: &[&str] = &[
+    "backend",
+    "voice",
+    "lang",
+    "rate",
+    "gender",
+    "style",
+    "model",
+    "stt_model",
+    "pack",
+];
+
+/// Stored and shown, but read by no backend yet.
+const UNREAD_PREFERENCE_KEYS: &[&str] = &["gender", "style"];
+
+/// The preference keys as one line of help: the ones that act first, then
+/// the ones that are only stored.
+pub fn preference_keys_help() -> String {
+    let read: Vec<&str> = PREFERENCE_KEYS
+        .iter()
+        .copied()
+        .filter(|key| !UNREAD_PREFERENCE_KEYS.contains(key))
+        .collect();
+    format!(
+        "{}; {} are accepted but have no effect yet",
+        read.join(", "),
+        UNREAD_PREFERENCE_KEYS.join(" and ")
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct VoiceClone {
     pub name: String,
@@ -135,21 +188,10 @@ pub fn get_preferences(conn: &Connection) -> Result<Preferences> {
 }
 
 pub fn set_preference(conn: &Connection, key: &str, value: &str) -> Result<()> {
-    let valid_keys = [
-        "backend",
-        "voice",
-        "lang",
-        "rate",
-        "gender",
-        "style",
-        "model",
-        "stt_model",
-        "pack",
-    ];
-    if !valid_keys.contains(&key) {
+    if !PREFERENCE_KEYS.contains(&key) {
         anyhow::bail!(
             "Unknown preference: {key}. Valid keys: {}",
-            valid_keys.join(", ")
+            PREFERENCE_KEYS.join(", ")
         );
     }
 
@@ -186,11 +228,10 @@ pub fn set_preference(conn: &Connection, key: &str, value: &str) -> Result<()> {
         _ => {}
     }
 
-    // Upsert: insert or update
+    // Upsert: insert or update. The insert names the id alone: every other
+    // column is NULL by default, so a column `migrate` adds needs nothing here.
     conn.execute(
-        "INSERT INTO preferences (id, backend, voice, lang, rate, gender, style, model, pack)
-         VALUES (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
-         ON CONFLICT(id) DO NOTHING",
+        "INSERT INTO preferences (id) VALUES (1) ON CONFLICT(id) DO NOTHING",
         [],
     )?;
     let sql = format!("UPDATE preferences SET {key} = ?1 WHERE id = 1");
@@ -275,6 +316,26 @@ pub fn log_usage(
         rusqlite::params![backend, voice, lang, text_len as i64, duration_ms.map(|d| d as i64)],
     )?;
     Ok(())
+}
+
+/// Log one utterance by its text. `vox stats` reports characters, so the
+/// length is counted in characters: `str::len` is bytes, and counts "é" twice.
+pub fn log_speech(
+    conn: &Connection,
+    backend: &str,
+    voice: Option<&str>,
+    lang: Option<&str>,
+    text: &str,
+    duration_ms: Option<u64>,
+) -> Result<()> {
+    log_usage(
+        conn,
+        backend,
+        voice,
+        lang,
+        text.chars().count(),
+        duration_ms,
+    )
 }
 
 pub fn get_usage_stats(conn: &Connection) -> Result<Vec<UsageEntry>> {
@@ -386,6 +447,61 @@ mod tests {
             get_preferences(&conn).unwrap().stt_model.as_deref(),
             Some("openai/whisper-tiny")
         );
+    }
+
+    /// Every key the setter accepts has a column to land in and a line in
+    /// `config show`: a key added to the list alone fails here, not at a user.
+    #[test]
+    fn every_preference_key_is_stored_and_shown() {
+        let conn = open_in_memory().unwrap();
+        for key in PREFERENCE_KEYS {
+            let value = match *key {
+                "backend" => "piper",
+                "lang" => "fr",
+                "rate" => "180",
+                "gender" => "feminine",
+                "style" => "calm",
+                _ => "some-value",
+            };
+            set_preference(&conn, key, value).unwrap_or_else(|e| panic!("{key}: {e}"));
+            let lines = get_preferences(&conn).unwrap().summary_lines();
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.starts_with(&format!("{key}:")) && line.ends_with(value)),
+                "{key} = {value} missing from {lines:?}"
+            );
+        }
+    }
+
+    /// The first preference ever set creates the row with every other column
+    /// empty, the ones added by `migrate` included.
+    #[test]
+    fn first_preference_leaves_every_other_one_unset() {
+        let conn = open_in_memory().unwrap();
+        set_preference(&conn, "lang", "fr").unwrap();
+        let prefs = get_preferences(&conn).unwrap();
+        assert_eq!(prefs.lang.as_deref(), Some("fr"));
+        let unset = [
+            &prefs.backend,
+            &prefs.voice,
+            &prefs.gender,
+            &prefs.style,
+            &prefs.model,
+            &prefs.stt_model,
+            &prefs.pack,
+        ];
+        assert!(unset.iter().all(|value| value.is_none()), "{prefs:?}");
+        assert_eq!(prefs.rate, None);
+    }
+
+    #[test]
+    fn help_names_every_preference_key() {
+        let help = preference_keys_help();
+        for key in PREFERENCE_KEYS {
+            assert!(help.contains(key), "{key} missing from {help:?}");
+        }
+        assert!(help.ends_with("gender and style are accepted but have no effect yet"));
     }
 
     /// Running migrate twice must be a no-op, not a duplicate-column error.

@@ -6,6 +6,7 @@
 use std::io::{self, BufRead, Write};
 
 use anyhow::Result;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -189,11 +190,18 @@ fn handle_tools_call(id: Value, params: &Option<Value>) -> JsonRpcResponse {
 // Tool definitions
 // ---------------------------------------------------------------------------
 
+/// The backends this binary can speak with, for the tool descriptions. An
+/// agent takes the list literally, so it names only what the build contains:
+/// kokoro sits behind a feature and `say` exists on macOS alone.
+fn backend_list() -> String {
+    backend::supported_backends().join(", ")
+}
+
 fn tool_definitions() -> Value {
     json!([
         {
             "name": "vox_speak",
-            "description": "Read text aloud using text-to-speech. Supports multiple backends, voices, languages, and styles.",
+            "description": "Read text aloud using text-to-speech. Supports multiple backends, voices and languages.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -211,15 +219,15 @@ fn tool_definitions() -> Value {
                     },
                     "backend": {
                         "type": "string",
-                        "description": "TTS backend: pocket, piper, qwen-native, say (macOS), kokoro (fastest, zero-shot)"
+                        "description": format!("TTS backend: {} (default: the stored preference, else pocket for English and piper for other languages)", backend_list())
                     },
                     "style": {
                         "type": "string",
-                        "description": "Intonation style: calm, energetic, warm, authoritative, cheerful, serious"
+                        "description": "No effect yet: accepted, but no backend reads it (calm, energetic, warm, authoritative, cheerful, serious)"
                     },
                     "gender": {
                         "type": "string",
-                        "description": "Gender hint: feminine, masculine"
+                        "description": "No effect yet: accepted, but no backend reads it (feminine, masculine)"
                     },
                     "rate": {
                         "type": "integer",
@@ -241,7 +249,7 @@ fn tool_definitions() -> Value {
                 "properties": {
                     "backend": {
                         "type": "string",
-                        "description": "TTS backend: pocket, piper, qwen-native, say (macOS), kokoro"
+                        "description": format!("TTS backend: {} (default: the one vox_speak would use)", backend_list())
                     }
                 }
             }
@@ -263,7 +271,7 @@ fn tool_definitions() -> Value {
                     },
                     "audio": {
                         "type": "string",
-                        "description": "Path to the reference audio file"
+                        "description": "Path to the reference audio file (wav, mp3, flac or ogg); it is converted and kept as a WAV in vox's clones directory"
                     },
                     "text": {
                         "type": "string",
@@ -289,7 +297,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "vox_config_show",
-            "description": "Show current vox preferences (backend, voice, language, rate, style).",
+            "description": "Show current vox preferences (backend, voice, language, rate, model, stt_model, pack).",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
@@ -300,7 +308,7 @@ fn tool_definitions() -> Value {
                 "properties": {
                     "key": {
                         "type": "string",
-                        "description": "Preference key: backend, voice, lang, rate, gender, style, model"
+                        "description": format!("Preference key: {}: no backend reads them", db::preference_keys_help())
                     },
                     "value": {
                         "type": "string",
@@ -469,6 +477,85 @@ fn call_tool(name: &str, args: &Value) -> ToolResult {
     }
 }
 
+/// What a `vox_speak` call resolves to, before any audio is produced.
+struct SpeakRequest {
+    backend: String,
+    opts: SpeakOptions,
+    /// A clone the caller named that the chosen backend cannot use.
+    ignored_clone: Option<String>,
+}
+
+/// Merge the tool arguments with the stored preferences, the way the command
+/// line merges its flags: argument > preference > language-aware default.
+fn speak_request(conn: &Connection, args: &Value) -> SpeakRequest {
+    let prefs = db::get_preferences(conn).unwrap_or_default();
+    let arg = |key: &str| args.get(key).and_then(|v| v.as_str());
+
+    let lang = arg("lang").map(String::from).or(prefs.lang);
+    let mut voice = arg("voice").map(String::from).or(prefs.voice);
+    let rate = args
+        .get("rate")
+        .and_then(|v| v.as_u64())
+        .map(|r| r as u32)
+        .or(prefs.rate);
+    let gender = arg("gender").map(String::from).or(prefs.gender);
+    let style = arg("style").map(String::from).or(prefs.style);
+    let volume = args
+        .get("volume")
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(1.0)
+        .clamp(0.0, 5.0);
+
+    // Resolve voice clone
+    let voice_clone = voice
+        .as_deref()
+        .and_then(|name| clone::resolve_voice(conn, name).ok().flatten());
+
+    let backend = clone::speak_backend(
+        arg("backend"),
+        prefs.backend.as_deref(),
+        lang.as_deref(),
+        voice_clone.is_some(),
+        clone::pocket_can_clone(),
+    );
+
+    let mut ref_audio = None;
+    let mut ref_text = None;
+    let mut ignored_clone = None;
+    if let Some(vc) = voice_clone {
+        if !clone::can_clone(&backend) {
+            ignored_clone = Some(vc.name);
+        }
+        ref_audio = Some(vc.ref_audio);
+        ref_text = vc.ref_text;
+        voice = None;
+    }
+
+    let opts = SpeakOptions {
+        voice,
+        lang,
+        rate,
+        gender,
+        style,
+        ref_audio,
+        ref_text,
+        // No tool argument for it, but the stored preference still applies,
+        // as it does on the command line.
+        model: prefs.model,
+        volume,
+        // Deliberately not exposed over MCP: an agent-supplied path would be
+        // an arbitrary file write. Saving stays a local CLI concern.
+        output: None,
+    };
+
+    SpeakRequest {
+        backend,
+        opts,
+        ignored_clone,
+    }
+}
+
 fn tool_speak(args: &Value) -> ToolResult {
     let text = match args.get("text").and_then(|v| v.as_str()) {
         Some(t) => t,
@@ -479,83 +566,15 @@ fn tool_speak(args: &Value) -> ToolResult {
         Ok(c) => c,
         Err(e) => return tool_err(format!("database error: {e}")),
     };
-    let prefs = db::get_preferences(&conn).unwrap_or_default();
-
-    let lang = args
-        .get("lang")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(prefs.lang);
-
-    // Merge MCP args > DB preferences > language-aware defaults
-    let backend_name = args
-        .get("backend")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(prefs.backend)
-        .unwrap_or_else(|| crate::config::default_backend_for_lang(lang.as_deref()).to_string());
-
-    let mut voice = args
-        .get("voice")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(prefs.voice);
-    let rate = args
-        .get("rate")
-        .and_then(|v| v.as_u64())
-        .map(|r| r as u32)
-        .or(prefs.rate);
-    let gender = args
-        .get("gender")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(prefs.gender);
-    let style = args
-        .get("style")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .or(prefs.style);
-    let volume = args
-        .get("volume")
-        .and_then(|v| v.as_f64())
-        .map(|v| v as f32)
-        .unwrap_or(1.0)
-        .clamp(0.0, 5.0);
-
-    // Resolve voice clone
-    let mut ref_audio = None;
-    let mut ref_text = None;
-    let mut effective_backend = backend_name;
-
-    if let Some(ref voice_name) = voice
-        && let Ok(Some(vc)) = clone::resolve_voice(&conn, voice_name)
-    {
-        ref_audio = Some(vc.ref_audio);
-        ref_text = vc.ref_text;
-        if effective_backend != "qwen-native" {
-            effective_backend = "qwen-native".to_string();
-        }
-        voice = None;
-    }
+    let SpeakRequest {
+        backend: effective_backend,
+        opts,
+        ignored_clone,
+    } = speak_request(&conn, args);
 
     let bk = match backend::get_backend(&effective_backend) {
         Ok(b) => b,
         Err(e) => return tool_err(format!("backend error: {e}")),
-    };
-
-    let opts = SpeakOptions {
-        voice,
-        lang: lang.clone(),
-        rate,
-        gender,
-        style,
-        ref_audio,
-        ref_text,
-        model: None,
-        volume,
-        // Deliberately not exposed over MCP: an agent-supplied path would be
-        // an arbitrary file write. Saving stays a local CLI concern.
-        output: None,
     };
 
     let start = std::time::Instant::now();
@@ -564,17 +583,25 @@ fn tool_speak(args: &Value) -> ToolResult {
     }
     let duration_ms = start.elapsed().as_millis() as u64;
 
-    let _ = db::log_usage(
+    let _ = db::log_speech(
         &conn,
         &effective_backend,
         opts.voice.as_deref(),
         opts.lang.as_deref(),
-        text.len(),
+        text,
         Some(duration_ms),
     );
 
+    let note = ignored_clone
+        .map(|name| {
+            format!(
+                " Note: the {effective_backend} backend cannot clone voices, so '{name}' was \
+                 ignored; omit backend or use qwen-native."
+            )
+        })
+        .unwrap_or_default();
     tool_ok(format!(
-        "Spoken: \"{}\" ({duration_ms}ms, {effective_backend})",
+        "Spoken: \"{}\" ({duration_ms}ms, {effective_backend}){note}",
         truncate_for_echo(text)
     ))
 }
@@ -591,12 +618,15 @@ pub fn truncate_for_echo(text: &str) -> String {
 }
 
 fn tool_list_voices(args: &Value) -> ToolResult {
-    let backend_name = args
-        .get("backend")
-        .and_then(|v| v.as_str())
-        .unwrap_or(crate::config::DEFAULT_BACKEND);
+    // Without an argument, list the voices of the backend vox_speak would
+    // use. Resolved by the same code, so a stored voice that is a clone
+    // counts here as it does there.
+    let backend_name = match db::open() {
+        Ok(conn) => speak_request(&conn, args).backend,
+        Err(e) => return tool_err(format!("database error: {e}")),
+    };
 
-    let bk = match backend::get_backend(backend_name) {
+    let bk = match backend::get_backend(&backend_name) {
         Ok(b) => b,
         Err(e) => return tool_err(format!("backend error: {e}")),
     };
@@ -650,17 +680,15 @@ fn tool_clone_add(args: &Value) -> ToolResult {
     };
     let text = args.get("text").and_then(|v| v.as_str());
 
-    if let Err(e) = clone::validate_audio(audio) {
-        return tool_err(format!("invalid audio: {e}"));
-    }
-
     let conn = match db::open() {
         Ok(c) => c,
         Err(e) => return tool_err(format!("database error: {e}")),
     };
 
-    match db::add_clone(&conn, name, audio, text) {
-        Ok(_) => tool_ok(format!("Voice clone '{name}' added.")),
+    match clone::add_clone_from_file(&conn, name, audio, text) {
+        Ok(stored) => tool_ok(format!(
+            "Voice clone '{name}' added (reference saved to {stored})."
+        )),
         Err(e) => tool_err(format!("error: {e}")),
     }
 }
@@ -676,7 +704,7 @@ fn tool_clone_remove(args: &Value) -> ToolResult {
         Err(e) => return tool_err(format!("database error: {e}")),
     };
 
-    match db::remove_clone(&conn, name) {
+    match clone::remove_clone(&conn, name) {
         Ok(true) => tool_ok(format!("Voice clone '{name}' removed.")),
         Ok(false) => tool_err(format!("Voice clone '{name}' not found.")),
         Err(e) => tool_err(format!("error: {e}")),
@@ -691,30 +719,8 @@ fn tool_config_show() -> ToolResult {
 
     match db::get_preferences(&conn) {
         Ok(prefs) => {
-            let lines = [
-                format!(
-                    "backend: {}",
-                    prefs.backend.as_deref().unwrap_or("(default)")
-                ),
-                format!("voice:   {}", prefs.voice.as_deref().unwrap_or("(default)")),
-                format!("lang:    {}", prefs.lang.as_deref().unwrap_or("(default)")),
-                format!(
-                    "rate:    {}",
-                    prefs
-                        .rate
-                        .map(|r| r.to_string())
-                        .as_deref()
-                        .unwrap_or("(default)")
-                ),
-                format!(
-                    "gender:  {}",
-                    prefs.gender.as_deref().unwrap_or("(default)")
-                ),
-                format!("style:   {}", prefs.style.as_deref().unwrap_or("(default)")),
-                format!("model:   {}", prefs.model.as_deref().unwrap_or("(default)")),
-                format!("pack:    {}", prefs.pack.as_deref().unwrap_or("(none)")),
-                crate::accel::config_line(),
-            ];
+            let mut lines = prefs.summary_lines();
+            lines.push(crate::accel::config_line());
             tool_ok(lines.join("\n"))
         }
         Err(e) => tool_err(format!("error: {e}")),
@@ -966,6 +972,57 @@ mod tests {
             }
             assert!(!instructions.contains("{plugin_note}"));
         }
+    }
+
+    /// The stored model preference applies over MCP as on the command line:
+    /// it used to be dropped, so `vox config set model` only reached the CLI.
+    #[test]
+    fn speak_request_uses_the_stored_model() {
+        let conn = db::open_in_memory().unwrap();
+        assert_eq!(speak_request(&conn, &json!({})).opts.model, None);
+
+        db::set_preference(&conn, "model", "Qwen/Qwen3-TTS-12Hz-1.7B-Base").unwrap();
+        let request = speak_request(&conn, &json!({"text": "hi"}));
+        assert_eq!(
+            request.opts.model.as_deref(),
+            Some("Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+        );
+    }
+
+    /// The `backend` argument is respected as given. A clone used to force
+    /// qwen-native over it, and nothing but qwen-native could ever clone.
+    #[test]
+    fn speak_request_follows_the_shared_backend_rule() {
+        let conn = db::open_in_memory().unwrap();
+        db::add_clone(&conn, "me", "/clones/me.wav", Some("hello")).unwrap();
+
+        let named = speak_request(&conn, &json!({"voice": "me", "backend": "pocket"}));
+        assert_eq!(named.backend, "pocket");
+        assert_eq!(named.opts.ref_audio.as_deref(), Some("/clones/me.wav"));
+        assert_eq!(named.opts.ref_text.as_deref(), Some("hello"));
+        assert_eq!(named.opts.voice, None, "a clone name is not a voice name");
+        assert_eq!(named.ignored_clone, None);
+
+        // Unnamed, it is the rule the command line uses, whatever this
+        // machine's HF_TOKEN says.
+        let unnamed = speak_request(&conn, &json!({"voice": "me"}));
+        assert_eq!(
+            unnamed.backend,
+            clone::speak_backend(None, None, None, true, clone::pocket_can_clone())
+        );
+
+        // A backend that cannot clone is still respected, and reported.
+        let piper = speak_request(&conn, &json!({"voice": "me", "backend": "piper"}));
+        assert_eq!(piper.backend, "piper");
+        assert_eq!(piper.ignored_clone.as_deref(), Some("me"));
+
+        // No clone: argument, then preference, then the language default.
+        db::set_preference(&conn, "lang", "fr").unwrap();
+        assert_eq!(speak_request(&conn, &json!({})).backend, "piper");
+        assert_eq!(
+            speak_request(&conn, &json!({"backend": "pocket"})).backend,
+            "pocket"
+        );
     }
 
     #[test]

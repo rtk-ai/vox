@@ -1,7 +1,8 @@
 //! Auto-configuration for 14 AI tools (Claude Code, Cursor, VS Code, Zed, etc.).
 //!
-//! `vox init` injects MCP server config into each tool's settings file.
-//! Idempotent — safe to run multiple times without duplicating entries.
+//! `vox init` injects MCP server config into the settings file of each tool
+//! found on the machine. Idempotent — safe to run multiple times without
+//! duplicating entries.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -234,6 +235,182 @@ pub fn run_init(project_dir: &Path, lang: Option<&str>) -> Result<InitResult> {
     Ok(result)
 }
 
+const CONFIGURED: &str = "configured";
+const ALREADY_CONFIGURED: &str = "already configured";
+const NOT_INSTALLED: &str = "not installed, skipped";
+
+/// How a tool's configuration file names its MCP servers.
+#[derive(Clone, Copy)]
+enum McpFormat {
+    /// A JSON object under this top-level key: `mcpServers` for most tools,
+    /// `servers` for VS Code, `mcp` for OpenCode.
+    Json(&'static str),
+    /// Zed `settings.json`.
+    Zed,
+    /// Codex `config.toml`.
+    Codex,
+}
+
+/// One AI tool `vox init` can register the MCP server with.
+pub struct McpTarget {
+    pub label: &'static str,
+    /// The file the server entry goes into.
+    pub config: PathBuf,
+    /// A directory the tool makes for itself. vox never creates it: it is how
+    /// a tool that is installed is told from one that is not.
+    pub data_dir: PathBuf,
+    format: McpFormat,
+}
+
+impl McpTarget {
+    fn in_dir(label: &'static str, data_dir: PathBuf, file: &str, format: McpFormat) -> Self {
+        Self {
+            label,
+            config: data_dir.join(file),
+            data_dir,
+            format,
+        }
+    }
+
+    /// Whether the tool is on this machine: its configuration file is there,
+    /// or the directory it keeps its own data in.
+    pub fn is_installed(&self) -> bool {
+        self.config.is_file() || self.data_dir.is_dir()
+    }
+}
+
+/// What `vox init` did for one tool.
+pub struct McpReport {
+    pub label: &'static str,
+    /// As printed: configured, already configured, not installed, or the error.
+    pub status: String,
+    pub installed: bool,
+    /// The entry was written by this run, so the tool has to be restarted.
+    pub newly_configured: bool,
+}
+
+/// Where desktop applications keep their settings on this platform: the
+/// parent of Claude Desktop's and VS Code's directories.
+pub fn app_config_dir(home: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library/Application Support")
+    }
+    #[cfg(target_os = "windows")]
+    {
+        dirs::config_dir().unwrap_or_else(|| home.join("AppData/Roaming"))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        home.join(".config")
+    }
+}
+
+/// The 14 tools, with the place each one reads its MCP servers from.
+pub fn mcp_targets(home: &Path, app_config: &Path) -> Vec<McpTarget> {
+    let servers = McpFormat::Json("mcpServers");
+    let vscode_user = app_config.join("Code/User");
+    // Cline and its forks are VS Code extensions: each keeps its settings in
+    // its own directory, which exists once the extension has run.
+    let extension = |label, id: &str| McpTarget {
+        label,
+        config: vscode_user
+            .join("globalStorage")
+            .join(id)
+            .join("settings/cline_mcp_settings.json"),
+        data_dir: vscode_user.join("globalStorage").join(id),
+        format: servers,
+    };
+
+    vec![
+        // The one tool whose file sits in the home directory itself, so its
+        // own directory is `~/.claude`.
+        McpTarget {
+            label: "Claude Code",
+            config: home.join(".claude.json"),
+            data_dir: home.join(".claude"),
+            format: servers,
+        },
+        McpTarget::in_dir(
+            "Claude Desktop",
+            app_config.join("Claude"),
+            "claude_desktop_config.json",
+            servers,
+        ),
+        McpTarget::in_dir("Cursor", home.join(".cursor"), "mcp.json", servers),
+        McpTarget::in_dir(
+            "Windsurf",
+            home.join(".codeium/windsurf"),
+            "mcp_config.json",
+            servers,
+        ),
+        McpTarget::in_dir(
+            "VS Code / Copilot",
+            vscode_user.clone(),
+            "mcp.json",
+            McpFormat::Json("servers"),
+        ),
+        McpTarget::in_dir(
+            "Zed",
+            home.join(".config/zed"),
+            "settings.json",
+            McpFormat::Zed,
+        ),
+        McpTarget::in_dir(
+            "Codex",
+            home.join(".codex"),
+            "config.toml",
+            McpFormat::Codex,
+        ),
+        McpTarget::in_dir(
+            "OpenCode",
+            home.join(".config/opencode"),
+            "opencode.json",
+            McpFormat::Json("mcp"),
+        ),
+        McpTarget::in_dir("Gemini", home.join(".gemini"), "settings.json", servers),
+        McpTarget::in_dir("Amazon Q", home.join(".aws/amazonq"), "mcp.json", servers),
+        extension("Cline", "saoudrizwan.claude-dev"),
+        extension("Roo Code", "rooveterinaryinc.roo-cline"),
+        extension("Kilo Code", "kilocode.kilo-code"),
+        McpTarget::in_dir("Amp", home.join(".ampcode"), "settings.json", servers),
+    ]
+}
+
+/// Register `vox serve` with every tool found under `home`, and report on
+/// all 14. A tool that is not installed is left alone: writing its file would
+/// create the directories of an application that is not there.
+pub fn configure_mcp(home: &Path, app_config: &Path, vox_bin: &str) -> Vec<McpReport> {
+    let entry = serde_json::json!({
+        "command": vox_bin,
+        "args": ["serve"],
+        "env": {}
+    });
+
+    mcp_targets(home, app_config)
+        .into_iter()
+        .map(|target| {
+            let installed = target.is_installed();
+            let status = if installed {
+                let written = match target.format {
+                    McpFormat::Json(key) => inject_mcp_json(&target.config, key, "vox", &entry),
+                    McpFormat::Zed => inject_zed_mcp(&target.config, "vox", vox_bin),
+                    McpFormat::Codex => inject_codex_mcp(&target.config, "vox", vox_bin),
+                };
+                written.unwrap_or_else(|e| format!("error: {e}"))
+            } else {
+                NOT_INSTALLED.to_string()
+            };
+            McpReport {
+                label: target.label,
+                installed,
+                newly_configured: status == CONFIGURED,
+                status,
+            }
+        })
+        .collect()
+}
+
 /// Inject an MCP server into a JSON config with a configurable top-level key.
 /// Works for: Claude (`mcpServers`), Cursor (`mcpServers`), Windsurf (`mcpServers`),
 /// OpenCode (`mcp`).
@@ -265,7 +442,7 @@ pub fn inject_mcp_json(
         && existing.get("command").and_then(|v| v.as_str())
             == entry.get("command").and_then(|v| v.as_str())
     {
-        return Ok("already configured".into());
+        return Ok(ALREADY_CONFIGURED.into());
     }
 
     servers
@@ -277,7 +454,7 @@ pub fn inject_mcp_json(
     fs::write(config_path, output)
         .with_context(|| format!("cannot write {}", config_path.display()))?;
 
-    Ok("configured".into())
+    Ok(CONFIGURED.into())
 }
 
 /// Shorthand for Claude/Cursor/Windsurf style (`mcpServers` key).
@@ -311,7 +488,7 @@ pub fn inject_zed_mcp(config_path: &PathBuf, name: &str, command: &str) -> Resul
         .or_insert_with(|| serde_json::json!({}));
 
     if servers.get(name).is_some() {
-        return Ok("already configured".into());
+        return Ok(ALREADY_CONFIGURED.into());
     }
 
     let zed_entry = serde_json::json!({
@@ -332,7 +509,7 @@ pub fn inject_zed_mcp(config_path: &PathBuf, name: &str, command: &str) -> Resul
     fs::write(config_path, output)
         .with_context(|| format!("cannot write {}", config_path.display()))?;
 
-    Ok("configured".into())
+    Ok(CONFIGURED.into())
 }
 
 /// Inject into Codex `config.toml` (TOML format).
@@ -349,7 +526,7 @@ pub fn inject_codex_mcp(config_path: &PathBuf, name: &str, command: &str) -> Res
 
     let section_header = format!("[mcp_servers.{name}]");
     if content.contains(&section_header) {
-        return Ok("already configured".into());
+        return Ok(ALREADY_CONFIGURED.into());
     }
 
     let toml_block = format!("\n{section_header}\ncommand = \"{command}\"\nargs = [\"serve\"]\n");
@@ -358,7 +535,7 @@ pub fn inject_codex_mcp(config_path: &PathBuf, name: &str, command: &str) -> Res
     fs::write(config_path, format!("{new_content}\n"))
         .with_context(|| format!("cannot write {}", config_path.display()))?;
 
-    Ok("configured".into())
+    Ok(CONFIGURED.into())
 }
 
 /// Inject into OpenCode `opencode.json` (uses `mcp` key with `command`+`args`).

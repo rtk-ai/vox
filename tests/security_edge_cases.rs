@@ -50,9 +50,14 @@ fn path_traversal_in_voice_name_is_handled() {
     use predicates::prelude::*;
 
     let tmp = tempfile::NamedTempFile::new().unwrap();
+    // Rendered to a file: /usr/bin/say accepts an unknown voice name, so
+    // without -o this test spoke "hi" aloud on every run of the suite.
+    let out = tempfile::tempdir().unwrap();
     cargo_bin_cmd!("vox")
         .env("VOX_DB_PATH", tmp.path())
-        .args(["-b", "say", "-v", "../../some/path", "hi"])
+        .args(["-b", "say", "-v", "../../some/path", "-o"])
+        .arg(out.path().join("hi.wav"))
+        .arg("hi")
         .assert()
         .stderr(predicate::str::contains("panicked").not())
         .stdout(predicate::str::contains("Cargo.toml").not());

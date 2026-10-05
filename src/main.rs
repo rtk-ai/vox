@@ -3,8 +3,8 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
-use vox::backend::{self, SpeakOptions};
-use vox::config::{self, DEFAULT_BACKEND};
+use vox::backend::{self, SpeakOptions, TtsBackend};
+use vox::config::DEFAULT_BACKEND;
 use vox::{clone, daemon, db, init, input, mcp, pack, tui};
 
 fn parse_volume(s: &str) -> Result<f32, String> {
@@ -21,9 +21,10 @@ struct Cli {
     /// Text to speak (when no subcommand is used)
     text: Vec<String>,
 
-    /// TTS backend (pocket, piper, qwen-native, say on macOS)
-    #[arg(short = 'b', long, default_value = DEFAULT_BACKEND)]
-    backend: String,
+    // No `default_value`: clap would fill it in, and `-b pocket` could no
+    // longer be told apart from no flag at all. The help states the default.
+    #[arg(short = 'b', long, help = backend_help())]
+    backend: Option<String>,
 
     /// Voice name (or clone name)
     #[arg(short = 'v', long)]
@@ -37,11 +38,11 @@ struct Cli {
     #[arg(short = 'r', long)]
     rate: Option<u32>,
 
-    /// Gender hint (feminine, masculine)
+    /// No effect yet: accepted, but no backend reads it (feminine, masculine)
     #[arg(long)]
     gender: Option<String>,
 
-    /// Intonation style (calm, energetic, warm, authoritative, cheerful, serious)
+    /// No effect yet: accepted, but no backend reads it (calm, energetic, warm, authoritative, cheerful, serious)
     #[arg(long)]
     style: Option<String>,
 
@@ -81,14 +82,19 @@ enum Commands {
     Stats,
     /// Interactive voice configuration (TUI for humans)
     Setup,
-    /// Auto-detect best backend for your hardware and set as default
-    Bench,
+    /// Time every backend on a test sentence (rendered to a file: nothing is played)
+    Bench {
+        /// Store the fastest backend as the default. It then applies to every
+        /// language, in place of the default chosen per language
+        #[arg(long)]
+        set: bool,
+    },
     /// Manage the TTS daemon (keeps models warm for fast inference)
     Daemon {
         #[command(subcommand)]
         action: DaemonAction,
     },
-    /// Set up AI assistant integration (Claude Code, Cursor, VS Code and 11 other tools)
+    /// Set up AI assistant integration for the tools installed here (Claude Code, Cursor, VS Code and 11 others)
     Init {
         /// Language for the generated instructions and Stop hook
         /// (default: your `vox config set lang`, else the system locale)
@@ -105,8 +111,11 @@ enum Commands {
         #[command(subcommand)]
         action: PackAction,
     },
-    /// Start a voice conversation with Claude (macOS only)
+    // No doc comment: the help names the default model, which is a constant.
     #[cfg(target_os = "macos")]
+    #[command(about = format!(
+        "Start a voice conversation with Claude (macOS only; model: VOX_CHAT_MODEL, default {DEFAULT_CHAT_MODEL})"
+    ))]
     Chat {
         /// Voice clone name
         #[arg(short = 'v', long)]
@@ -184,7 +193,7 @@ enum InitMode {
 enum PackAction {
     /// List available and installed sound packs
     List,
-    /// Install a sound pack from peon-ping repository
+    /// Install a sound pack from the peon-ping registry
     Install {
         /// Pack name (e.g. peon, peon_fr, sc_kerrigan)
         name: String,
@@ -214,7 +223,9 @@ enum PackAction {
 enum ConfigAction {
     /// Show current preferences
     Show,
-    /// Set a preference (backend, voice, lang, rate, gender, style, model)
+    // No doc comment: the keys come from the list `db::set_preference` checks
+    // against, so the help cannot name fewer keys than are accepted.
+    #[command(about = format!("Set a preference ({})", db::preference_keys_help()))]
     Set {
         /// Preference key
         key: String,
@@ -255,7 +266,7 @@ fn main() -> Result<()> {
         Some(Commands::Config { action }) => handle_config(action),
         Some(Commands::Stats) => handle_stats(),
         Some(Commands::Setup) => tui::run(),
-        Some(Commands::Bench) => handle_bench(),
+        Some(Commands::Bench { set }) => handle_bench(set),
         Some(Commands::Daemon { action }) => handle_daemon(action),
         Some(Commands::Init { mode, lang }) => handle_init(mode, lang),
         Some(Commands::Serve) => mcp::run_server(),
@@ -274,25 +285,26 @@ fn main() -> Result<()> {
     }
 }
 
-/// The backend to use for voice cloning. Pure Rust, every platform.
-fn voice_clone_backend() -> &'static str {
-    "qwen-native"
+/// Help for `-b`, with the default spelled out: the flag itself has none, so
+/// that naming the default backend still counts as naming a backend.
+fn backend_help() -> String {
+    format!(
+        "TTS backend ({}) [default: {DEFAULT_BACKEND}; piper for languages other than English]",
+        backend::supported_backends().join(", ")
+    )
 }
 
 fn handle_speak(cli: Cli) -> Result<()> {
     let conn = db::open()?;
     let prefs = db::get_preferences(&conn)?;
 
-    let lang = cli.lang.clone().or(prefs.lang);
+    // Said where the flag was typed: nothing downstream reads either value,
+    // and silence would read as "applied".
+    if cli.gender.is_some() || cli.style.is_some() {
+        eprintln!("Note: --gender and --style have no effect yet: no backend reads them.");
+    }
 
-    // Merge: CLI flags > DB preferences > language-aware defaults
-    let backend_name = if cli.backend != DEFAULT_BACKEND {
-        cli.backend.clone()
-    } else {
-        prefs
-            .backend
-            .unwrap_or_else(|| config::default_backend_for_lang(lang.as_deref()).to_string())
-    };
+    let lang = cli.lang.clone().or(prefs.lang);
 
     let mut voice = cli.voice.or(prefs.voice);
     let rate = cli.rate.or(prefs.rate);
@@ -301,19 +313,33 @@ fn handle_speak(cli: Cli) -> Result<()> {
     let model = cli.model.or(prefs.model);
 
     // Resolve voice clone
+    let voice_clone = match voice.as_deref() {
+        Some(voice_name) => clone::resolve_voice(&conn, voice_name)?,
+        None => None,
+    };
+
+    // Merge: CLI flag > DB preference > language-aware default, with a clone
+    // moved to a backend that can use it unless the flag named one.
+    let effective_backend = clone::speak_backend(
+        cli.backend.as_deref(),
+        prefs.backend.as_deref(),
+        lang.as_deref(),
+        voice_clone.is_some(),
+        clone::pocket_can_clone(),
+    );
+
     let mut ref_audio = None;
     let mut ref_text = None;
-    let mut effective_backend = backend_name.clone();
-
-    if let Some(ref voice_name) = voice
-        && let Some(vc) = clone::resolve_voice(&conn, voice_name)?
-    {
+    if let Some(vc) = voice_clone {
+        if !clone::can_clone(&effective_backend) {
+            eprintln!(
+                "Note: the {effective_backend} backend cannot clone voices, so '{}' is ignored. \
+                 Drop -b, or use -b qwen-native.",
+                vc.name
+            );
+        }
         ref_audio = Some(vc.ref_audio);
         ref_text = vc.ref_text;
-        // Auto-switch to a clone-capable backend (unless already on one)
-        if !["qwen-native", "pocket"].contains(&effective_backend.as_str()) {
-            effective_backend = voice_clone_backend().to_string();
-        }
         voice = None; // don't pass clone name as --voice
     }
 
@@ -363,12 +389,12 @@ fn handle_speak(cli: Cli) -> Result<()> {
     let duration_ms = start.elapsed().as_millis() as u64;
 
     // Log usage
-    let _ = db::log_usage(
+    let _ = db::log_speech(
         &conn,
         &effective_backend,
         opts.voice.as_deref(),
         opts.lang.as_deref(),
-        text.len(),
+        &text,
         Some(duration_ms),
     );
 
@@ -380,8 +406,8 @@ fn handle_clone(action: CloneAction) -> Result<()> {
 
     match action {
         CloneAction::Add { name, audio, text } => {
-            clone::validate_audio(&audio)?;
-            db::add_clone(&conn, &name, &audio, text.as_deref())?;
+            let stored = clone::add_clone_from_file(&conn, &name, &audio, text.as_deref())?;
+            eprintln!("Reference saved to {stored}");
             println!("Voice clone '{name}' added.");
         }
         CloneAction::Record {
@@ -389,6 +415,10 @@ fn handle_clone(action: CloneAction) -> Result<()> {
             duration,
             text,
         } => {
+            // Before the microphone opens: the recording is written under the
+            // name, so a taken one would replace that clone's reference, and
+            // only then fail to register.
+            clone::new_reference_path(&conn, &name)?;
             let audio_path = clone::record_clone(&name, duration)?;
             db::add_clone(&conn, &name, &audio_path, text.as_deref())?;
             println!("Voice clone '{name}' recorded and saved.");
@@ -412,7 +442,7 @@ fn handle_clone(action: CloneAction) -> Result<()> {
             }
         }
         CloneAction::Remove { name } => {
-            if db::remove_clone(&conn, &name)? {
+            if clone::remove_clone(&conn, &name)? {
                 println!("Voice clone '{name}' removed.");
             } else {
                 println!("Voice clone '{name}' not found.");
@@ -428,31 +458,9 @@ fn handle_config(action: ConfigAction) -> Result<()> {
     match action {
         ConfigAction::Show => {
             let prefs = db::get_preferences(&conn)?;
-            println!(
-                "backend: {}",
-                prefs.backend.as_deref().unwrap_or("(default)")
-            );
-            println!("voice:   {}", prefs.voice.as_deref().unwrap_or("(default)"));
-            println!("lang:    {}", prefs.lang.as_deref().unwrap_or("(default)"));
-            println!(
-                "rate:    {}",
-                prefs
-                    .rate
-                    .map(|r| r.to_string())
-                    .as_deref()
-                    .unwrap_or("(default)")
-            );
-            println!(
-                "gender:  {}",
-                prefs.gender.as_deref().unwrap_or("(default)")
-            );
-            println!("style:   {}", prefs.style.as_deref().unwrap_or("(default)"));
-            println!("model:   {}", prefs.model.as_deref().unwrap_or("(default)"));
-            println!(
-                "stt_model: {}",
-                prefs.stt_model.as_deref().unwrap_or("(default)")
-            );
-            println!("pack:    {}", prefs.pack.as_deref().unwrap_or("(none)"));
+            for line in prefs.summary_lines() {
+                println!("{line}");
+            }
             println!("{}", vox::accel::config_line());
         }
         ConfigAction::Set { key, value } => {
@@ -465,6 +473,23 @@ fn handle_config(action: ConfigAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The Claude model `vox chat` talks to when VOX_CHAT_MODEL names none: the
+/// fastest current one. A spoken reply is short, and what is felt is the wait
+/// before its first word. The request carries no `thinking` setting, and this
+/// model then answers at once, where the larger current models think first.
+#[cfg(target_os = "macos")]
+const DEFAULT_CHAT_MODEL: &str = "claude-haiku-4-5";
+
+/// The model for `vox chat`: VOX_CHAT_MODEL when it names one. An empty value
+/// counts as unset, which is what `VOX_CHAT_MODEL=` in a shell means.
+#[cfg(target_os = "macos")]
+fn chat_model(from_env: Option<String>) -> String {
+    from_env
+        .map(|model| model.trim().to_string())
+        .filter(|model| !model.is_empty())
+        .unwrap_or_else(|| DEFAULT_CHAT_MODEL.to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -490,7 +515,7 @@ fn handle_chat(voice: Option<String>, lang: Option<String>) -> Result<()> {
         voice_clone,
         lang,
         api_key,
-        model: "claude-sonnet-4-20250514".to_string(),
+        model: chat_model(std::env::var("VOX_CHAT_MODEL").ok()),
     };
 
     chat::run_chat_loop(config)
@@ -535,6 +560,10 @@ fn handle_init(mode: InitMode, lang: Option<String>) -> Result<()> {
     let do_mcp = matches!(mode, InitMode::Mcp | InitMode::All);
     let do_skill = matches!(mode, InitMode::Skill | InitMode::All);
 
+    // The tools this run changed something for: the ones to restart.
+    let mut restart: Vec<&str> = Vec::new();
+    let mut no_tool_found = false;
+
     // --- CLI mode: CLAUDE.md + Stop hook ---
     if do_cli {
         let cwd = std::env::current_dir().context("Failed to get current directory")?;
@@ -546,148 +575,30 @@ fn handle_init(mode: InitMode, lang: Option<String>) -> Result<()> {
         if result.settings_written {
             println!("[cli] .claude/settings.json configured with Stop hook.");
         }
-        if !result.claude_md_written && !result.settings_written {
+        if result.claude_md_written || result.settings_written {
+            restart.push("Claude Code");
+        } else {
             println!("[cli] already configured.");
         }
     }
 
-    // --- MCP mode: configure MCP server for all AI tools ---
+    // --- MCP mode: configure the MCP server for the AI tools found here ---
     if do_mcp {
         let vox_bin = std::env::current_exe().context("cannot determine vox binary path")?;
-        let vox_bin_str = vox_bin.to_string_lossy().to_string();
-        let home_path = dirs::home_dir().context("cannot determine home directory")?;
-
-        let mcp_entry = serde_json::json!({
-            "command": vox_bin_str,
-            "args": ["serve"],
-            "env": {}
-        });
-
-        // Helper to print status and skip non-existent tool dirs
-        let configure = |label: &str, result: Result<String, anyhow::Error>| {
-            let status = result.unwrap_or_else(|e| format!("error: {e}"));
-            println!("[mcp] {label:<20} {status}");
-        };
-
-        // -- Claude Code --
-        let path = home_path.join(".claude.json");
-        configure(
-            "Claude Code",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
+        let home = dirs::home_dir().context("cannot determine home directory")?;
+        let reports = init::configure_mcp(
+            &home,
+            &init::app_config_dir(&home),
+            &vox_bin.to_string_lossy(),
         );
 
-        // -- Claude Desktop --
-        #[cfg(target_os = "macos")]
-        let path = home_path.join("Library/Application Support/Claude/claude_desktop_config.json");
-        #[cfg(target_os = "windows")]
-        let path = dirs::config_dir()
-            .map(|d| d.join("Claude/claude_desktop_config.json"))
-            .unwrap_or_else(|| home_path.join("AppData/Roaming/Claude/claude_desktop_config.json"));
-        #[cfg(target_os = "linux")]
-        let path = home_path.join(".config/Claude/claude_desktop_config.json");
-        configure(
-            "Claude Desktop",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
-        );
-
-        // -- Cursor --
-        let path = home_path.join(".cursor/mcp.json");
-        configure("Cursor", init::inject_mcp_server(&path, "vox", &mcp_entry));
-
-        // -- Windsurf --
-        let path = home_path.join(".codeium/windsurf/mcp_config.json");
-        configure(
-            "Windsurf",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
-        );
-
-        // -- VS Code / Copilot (user-level settings) --
-        #[cfg(target_os = "macos")]
-        let path = home_path.join("Library/Application Support/Code/User/mcp.json");
-        #[cfg(target_os = "windows")]
-        let path = dirs::config_dir()
-            .map(|d| d.join("Code/User/mcp.json"))
-            .unwrap_or_else(|| home_path.join("AppData/Roaming/Code/User/mcp.json"));
-        #[cfg(target_os = "linux")]
-        let path = home_path.join(".config/Code/User/mcp.json");
-        configure(
-            "VS Code / Copilot",
-            init::inject_vscode_mcp(&path, "vox", &mcp_entry),
-        );
-
-        // -- Zed --
-        #[cfg(target_os = "macos")]
-        let zed_path = home_path.join(".config/zed/settings.json");
-        #[cfg(not(target_os = "macos"))]
-        let zed_path = home_path.join(".config/zed/settings.json");
-        configure("Zed", init::inject_zed_mcp(&zed_path, "vox", &vox_bin_str));
-
-        // -- Codex --
-        let path = home_path.join(".codex/config.toml");
-        configure("Codex", init::inject_codex_mcp(&path, "vox", &vox_bin_str));
-
-        // -- OpenCode --
-        let path = home_path.join(".config/opencode/opencode.json");
-        configure(
-            "OpenCode",
-            init::inject_opencode_mcp(&path, "vox", &mcp_entry),
-        );
-
-        // -- Gemini Code Assist --
-        let path = home_path.join(".gemini/settings.json");
-        configure("Gemini", init::inject_mcp_server(&path, "vox", &mcp_entry));
-
-        // -- Amazon Q --
-        let path = home_path.join(".aws/amazonq/mcp.json");
-        configure(
-            "Amazon Q",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
-        );
-
-        // -- Cline (VS Code extension) --
-        #[cfg(target_os = "macos")]
-        let path = home_path.join("Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
-        #[cfg(target_os = "windows")]
-        let path = dirs::config_dir()
-            .map(|d| d.join("Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"))
-            .unwrap_or_else(|| home_path.join("AppData/Roaming/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"));
-        #[cfg(target_os = "linux")]
-        let path = home_path.join(".config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
-        configure("Cline", init::inject_mcp_server(&path, "vox", &mcp_entry));
-
-        // -- Roo Code (VS Code extension) --
-        #[cfg(target_os = "macos")]
-        let path = home_path.join("Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
-        #[cfg(target_os = "windows")]
-        let path = dirs::config_dir()
-            .map(|d| d.join("Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json"))
-            .unwrap_or_else(|| home_path.join("AppData/Roaming/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json"));
-        #[cfg(target_os = "linux")]
-        let path = home_path.join(".config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
-        configure(
-            "Roo Code",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
-        );
-
-        // -- Kilo Code (VS Code extension) --
-        #[cfg(target_os = "macos")]
-        let path = home_path.join("Library/Application Support/Code/User/globalStorage/kilocode.kilo-code/settings/cline_mcp_settings.json");
-        #[cfg(target_os = "windows")]
-        let path = dirs::config_dir()
-            .map(|d| d.join("Code/User/globalStorage/kilocode.kilo-code/settings/cline_mcp_settings.json"))
-            .unwrap_or_else(|| home_path.join("AppData/Roaming/Code/User/globalStorage/kilocode.kilo-code/settings/cline_mcp_settings.json"));
-        #[cfg(target_os = "linux")]
-        let path = home_path.join(
-            ".config/Code/User/globalStorage/kilocode.kilo-code/settings/cline_mcp_settings.json",
-        );
-        configure(
-            "Kilo Code",
-            init::inject_mcp_server(&path, "vox", &mcp_entry),
-        );
-
-        // -- Amp --
-        let path = home_path.join(".ampcode/settings.json");
-        configure("Amp", init::inject_mcp_server(&path, "vox", &mcp_entry));
+        for report in &reports {
+            println!("[mcp] {:<20} {}", report.label, report.status);
+            if report.newly_configured {
+                restart.push(report.label);
+            }
+        }
+        no_tool_found = reports.iter().all(|report| !report.installed);
     }
 
     // --- Skill mode: create /speak slash command ---
@@ -714,11 +625,14 @@ fn handle_init(mode: InitMode, lang: Option<String>) -> Result<()> {
             )
             .context("cannot write skill file")?;
             println!("[skill] /speak command created.");
+            restart.push("Claude Code");
         }
     }
 
     println!();
-    println!("Restart Claude Code / Claude Desktop to activate.");
+    for line in init_closing_lines(&restart, no_tool_found) {
+        println!("{line}");
+    }
     println!();
     println!("Claude Code plugin (live voice visualizer), in a Claude Code session:");
     for command in init::PLUGIN_INSTALL_COMMANDS {
@@ -726,6 +640,27 @@ fn handle_init(mode: InitMode, lang: Option<String>) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// What `vox init` says last: the tools to restart are the ones this run
+/// changed something for, and no others.
+fn init_closing_lines(restart: &[&str], no_tool_found: bool) -> Vec<String> {
+    let mut tools: Vec<&str> = Vec::new();
+    for tool in restart {
+        if !tools.contains(tool) {
+            tools.push(tool);
+        }
+    }
+    if !tools.is_empty() {
+        return vec![format!("Restart {} to activate.", tools.join(", "))];
+    }
+    if no_tool_found {
+        return vec![
+            "No supported AI tool was found on this machine: nothing was configured.".to_string(),
+            "Install one, start it once, then run `vox init` again.".to_string(),
+        ];
+    }
+    vec!["Nothing changed, so there is nothing to restart.".to_string()]
 }
 
 fn handle_pack(action: PackAction) -> Result<()> {
@@ -934,8 +869,40 @@ fn handle_daemon(action: DaemonAction) -> Result<()> {
     }
 }
 
-fn handle_bench() -> Result<()> {
-    println!("vox bench — auto-detecting best backend for your hardware\n");
+/// Time one backend rendering `text` to a WAV file in `dir`. `output` is what
+/// makes a backend write instead of play: a benchmark has no reason to be
+/// heard, and playing would time the length of the sentence.
+fn time_render(backend: &dyn TtsBackend, text: &str, dir: &std::path::Path) -> Result<u128> {
+    let opts = SpeakOptions {
+        output: Some(dir.join(format!("{}.wav", backend.name()))),
+        ..Default::default()
+    };
+    let start = Instant::now();
+    backend.speak(text, &opts)?;
+    Ok(start.elapsed().as_millis())
+}
+
+/// Store the fastest backend when `--set` asks for it, and return the lines
+/// that close the report. Without `--set` nothing is stored: a stored backend
+/// applies to every language, so it turns off the default chosen per language.
+fn conclude_bench(conn: &rusqlite::Connection, fastest: &str, set: bool) -> Result<Vec<String>> {
+    let per_language = format!("{DEFAULT_BACKEND} for English, piper for the other languages");
+    if set {
+        db::set_preference(conn, "backend", fastest)?;
+        return Ok(vec![
+            format!("Saved {fastest} as the default backend, for every language."),
+            format!("It replaces the default chosen per language ({per_language})."),
+        ]);
+    }
+    Ok(vec![
+        "Nothing was changed. To make it the default backend:".to_string(),
+        format!("  vox config set backend {fastest}    (or: vox bench --set)"),
+        format!("A stored backend applies to every language, in place of {per_language}."),
+    ])
+}
+
+fn handle_bench(set: bool) -> Result<()> {
+    println!("vox bench — timing each backend on this machine\n");
 
     // Detect platform
     let os = if cfg!(target_os = "macos") {
@@ -946,21 +913,10 @@ fn handle_bench() -> Result<()> {
         "Linux"
     };
 
-    // Detect GPU
-    let has_nvidia = std::path::Path::new("/usr/bin/nvidia-smi").exists()
-        || std::env::var("CUDA_VISIBLE_DEVICES").is_ok();
-    let has_metal = cfg!(target_os = "macos");
-
-    let gpu = if has_nvidia {
-        "NVIDIA CUDA"
-    } else if has_metal {
-        "Apple Metal"
-    } else {
-        "None (CPU only)"
-    };
-
-    println!("  Platform:  {os}");
-    println!("  GPU:       {gpu}");
+    // What this binary was built with, not what the machine has: a CPU build
+    // uses no GPU even on a Mac.
+    println!("  Platform:      {os}");
+    println!("  Acceleration:  {}", vox::accel::describe());
     println!();
 
     // List backends to test
@@ -984,29 +940,24 @@ fn handle_bench() -> Result<()> {
 
     let test_text = "Hello, this is a quick benchmark test.";
     let mut results: Vec<(&str, u128)> = Vec::new();
+    let scratch = tempfile::tempdir().context("Failed to create a temporary directory")?;
 
     println!("  Testing {} backends...\n", candidates.len());
 
     for name in &candidates {
         print!("  {:<14} ", name);
         match backend::get_backend(name) {
-            Ok(b) => {
-                let opts = SpeakOptions::default();
-                let start = Instant::now();
-                // Suppress audio — write to /dev/null by setting a very short text
-                match b.speak(test_text, &opts) {
-                    Ok(()) => {
-                        let ms = start.elapsed().as_millis();
-                        results.push((name, ms));
-                        let bar_len = (ms / 500).min(20) as usize;
-                        let bar: String = "\u{2588}".repeat(bar_len);
-                        println!("{ms:>6}ms  {bar}");
-                    }
-                    Err(e) => {
-                        println!("FAILED  ({e})");
-                    }
+            Ok(b) => match time_render(b.as_ref(), test_text, scratch.path()) {
+                Ok(ms) => {
+                    results.push((name, ms));
+                    let bar_len = (ms / 500).min(20) as usize;
+                    let bar: String = "\u{2588}".repeat(bar_len);
+                    println!("{ms:>6}ms  {bar}");
                 }
-            }
+                Err(e) => {
+                    println!("FAILED  ({e})");
+                }
+            },
             Err(e) => {
                 println!("SKIP    ({e})");
             }
@@ -1027,14 +978,116 @@ fn handle_bench() -> Result<()> {
     println!(
         "\n  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
     );
-    println!("  Best: {best} ({best_ms}ms)");
+    println!("  Fastest: {best} ({best_ms}ms)");
 
-    // Set as default
     let conn = db::open()?;
-    db::set_preference(&conn, "backend", best)?;
-    println!("  Saved as default backend.\n");
+    for line in conclude_bench(&conn, best, set)? {
+        println!("  {line}");
+    }
 
-    println!("  Run `vox bench` again after installing new backends.");
+    println!("\n  Run `vox bench` again after installing new backends.");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use super::*;
+
+    /// A backend that records what it was asked instead of rendering.
+    struct Recorder {
+        asked: RefCell<Vec<SpeakOptions>>,
+    }
+
+    impl TtsBackend for Recorder {
+        fn name(&self) -> &str {
+            "recorder"
+        }
+        fn speak(&self, _text: &str, opts: &SpeakOptions) -> Result<()> {
+            self.asked.borrow_mut().push(opts.clone());
+            Ok(())
+        }
+        fn list_voices(&self) -> Result<Vec<String>> {
+            Ok(Vec::new())
+        }
+        fn is_available(&self) -> bool {
+            true
+        }
+    }
+
+    /// `vox bench` used to call `speak` with no output file, which is the
+    /// request to play: the test sentence came out of the speakers once per
+    /// backend.
+    #[test]
+    fn bench_renders_to_a_file_and_plays_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = Recorder {
+            asked: RefCell::new(Vec::new()),
+        };
+
+        time_render(&backend, "Hello.", dir.path()).unwrap();
+
+        let asked = backend.asked.borrow();
+        assert_eq!(asked.len(), 1);
+        let output = asked[0].output.as_deref().expect("an output file");
+        assert_eq!(output, dir.path().join("recorder.wav"));
+    }
+
+    /// The fastest backend used to be stored on every run, and a stored
+    /// backend turns off the default chosen per language.
+    #[test]
+    fn bench_stores_nothing_unless_asked() {
+        let conn = db::open_in_memory().unwrap();
+
+        let lines = conclude_bench(&conn, "piper", false).unwrap();
+
+        assert_eq!(db::get_preferences(&conn).unwrap().backend, None);
+        let report = lines.join("\n");
+        assert!(report.contains("vox config set backend piper"), "{report}");
+        assert!(report.contains("vox bench --set"), "{report}");
+        assert!(report.contains("Nothing was changed"), "{report}");
+    }
+
+    #[test]
+    fn bench_set_stores_the_fastest_backend_and_says_what_it_replaces() {
+        let conn = db::open_in_memory().unwrap();
+
+        let lines = conclude_bench(&conn, "piper", true).unwrap();
+
+        assert_eq!(
+            db::get_preferences(&conn).unwrap().backend.as_deref(),
+            Some("piper")
+        );
+        let report = lines.join("\n");
+        assert!(report.contains("Saved piper"), "{report}");
+        assert!(report.contains("every language"), "{report}");
+    }
+
+    #[test]
+    fn init_names_only_the_tools_it_changed() {
+        assert_eq!(
+            init_closing_lines(&["Claude Code", "Cursor", "Claude Code"], false),
+            ["Restart Claude Code, Cursor to activate."]
+        );
+        let unchanged = init_closing_lines(&[], false).join("\n");
+        assert!(unchanged.contains("Nothing changed"), "{unchanged}");
+        assert!(!unchanged.contains("Restart "), "{unchanged}");
+        let none = init_closing_lines(&[], true).join("\n");
+        assert!(none.contains("No supported AI tool was found"), "{none}");
+        assert!(!none.contains("Claude"), "{none}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn chat_model_comes_from_the_environment_or_the_default() {
+        assert_eq!(chat_model(None), DEFAULT_CHAT_MODEL);
+        assert_eq!(chat_model(Some(String::new())), DEFAULT_CHAT_MODEL);
+        assert_eq!(chat_model(Some("  ".into())), DEFAULT_CHAT_MODEL);
+        assert_eq!(
+            chat_model(Some(" claude-opus-5-5 ".into())),
+            "claude-opus-5-5"
+        );
+    }
 }
