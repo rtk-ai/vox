@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.17.0](https://github.com/rtk-ai/vox/compare/v0.16.0...v0.17.0) (2026-10-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* the qwen (MLX-Audio) and voxtream backends are removed. Both required a manual Python setup; qwen-native runs the same Qwen3-TTS family on candle, in Rust, on all three platforms with voice cloning from a 3-second reference.
+
+### Features
+
+* Claude Code plugin with a live voice visualizer, faster first sound, real GPU builds and installer ([#84](https://github.com/rtk-ai/vox/issues/84)) ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **cli:** write audio to a file with -o ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **clone:** convert the reference of a clone to WAV when it is added, and warn when a recording is clipping ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* drop the Python backends, vox is now pure Rust ([#81](https://github.com/rtk-ai/vox/issues/81)) ([a7726b0](https://github.com/rtk-ai/vox/commit/a7726b0219767eb2f24c10db919ed60f76c1b7e2))
+* **init:** tell the agent and the user about the Claude Code plugin ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **install:** choose the CPU or CUDA build in the installer, with fallback, and refuse clearly where vox cannot run ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **mic:** scale the VAD to the real input level, normalise, add audio cues ([#79](https://github.com/rtk-ai/vox/issues/79)) ([c910ebc](https://github.com/rtk-ai/vox/commit/c910ebc709cf3ff74a9c8f79fe11b990e675b28e))
+* **plugin:** Claude Code plugin with a live voice visualizer above the prompt, and its marketplace ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **stt:** make the Whisper model configurable, default to base ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+
+
+### Bug Fixes
+
+* **chat:** follow the conversation's language and make the model configurable ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **ci:** ship a CUDA build for RTX 30 and newer, warn when a release has none, fix the Homebrew formula ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **cli:** an explicit -b always wins, and voice clones work on the default backend ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **daemon:** --idle-timeout 0 means no timeout, and the daemon keeps a log ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **mcp:** use the stored model, list the backends of the build, match the command line ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **pack:** install sound packs from the peon-ping registry ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **pack:** validate pack names before they reach the filesystem ([#80](https://github.com/rtk-ai/vox/issues/80)) ([3f77126](https://github.com/rtk-ai/vox/commit/3f77126cd9f1402c482f01981a0ac1f7c66e17df))
+* **piper:** honor -o and --volume on macOS, select a voice with -v, send Japanese to qwen-native ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **pocket:** announce a first-run download only when there is one ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+* **say:** -o writes a WAV where asked, and a text starting with a dash is spoken ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+
+
+### Performance Improvements
+
+* start speaking while the model still generates (English first sound 1.5-1.8 s -&gt; 0.2-0.5 s) ([33398d4](https://github.com/rtk-ai/vox/commit/33398d43c89107aa17a50e26bd539dde287da3cf))
+
+
+### Miscellaneous Chores
+
+* release 0.17.0 ([c15cf16](https://github.com/rtk-ai/vox/commit/c15cf1609904245002f9cf00df8599bdfbb459c0))
+
 ## [0.16.0](https://github.com/rtk-ai/vox/compare/v0.15.1...v0.16.0) (2026-09-25)
 
 
