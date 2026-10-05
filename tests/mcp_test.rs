@@ -193,7 +193,13 @@ fn clone_add_converts_the_reference_like_the_command_line() {
     let (text, is_error) = sandbox.call("vox_clone_add", json!({"name": "agent", "audio": mp3}));
     assert!(!is_error, "{text}");
 
-    let stored = sandbox.path().join("config/clones/agent.wav");
+    // Joined part by part: the tool prints the path with the platform's
+    // separator, and "config/clones/agent.wav" would not match on Windows.
+    let stored = sandbox
+        .path()
+        .join("config")
+        .join("clones")
+        .join("agent.wav");
     let reader = hound::WavReader::open(&stored).unwrap();
     assert_eq!(reader.spec().channels, 1);
     assert!(reader.duration() > 0);
