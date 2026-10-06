@@ -157,6 +157,9 @@ The cloned voice used a 13.8 s reference recording at 24 kHz with its
 transcription.
 Linux on ARM64 has not been measured.
 
+The minimum and maximum of each figure, the first-call times, the texts used
+and what was not measured are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
 `say` and `kokoro` have not been measured again. The figures below are older:
 end-to-end times for one sentence of about 50 characters (model load, synthesis
 and playback) on an M2 Pro using the CPU.
@@ -640,6 +643,7 @@ These documents are written in French.
 | [Architecture](docs/ARCHITECTURE.md) | Technical architecture, backends, DB schema, MCP protocol, security |
 | [Features](docs/FEATURES.md) | All commands and features documented |
 | [Guide](docs/GUIDE.md) | Installation, quick start, troubleshooting |
+| [Benchmarks](docs/BENCHMARKS.md) | Generation and transcription times on macOS, Linux and Windows, with the method |
 
 ## License
 

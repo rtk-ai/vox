@@ -378,6 +378,9 @@ CREATE TABLE IF NOT EXISTS voice_clones (
 
 ## Latence par backend
 
+Les temps de generation mesures sur macOS, Linux et Windows avec les binaires
+de la v0.17.0 sont dans [BENCHMARKS.md](BENCHMARKS.md).
+
 Mesures du 2026-10-04 et du 2026-10-05 : temps entre le lancement de vox et le premier son, phrase de 3 secondes, portable Apple A18 Pro (8 Go, mode economie d'energie), build release Metal.
 
 | Backend | Sans daemon | Avec daemon |
