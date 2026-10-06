@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/rtk-ai/vox/compare/v0.17.0...v0.17.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* never block on a dead audio device, and release the caller of daemon start on Windows ([#86](https://github.com/rtk-ai/vox/issues/86)) ([a45a44d](https://github.com/rtk-ai/vox/commit/a45a44da714aa3526f6709807dea16271e98f0e8))
+
 ## [0.17.0](https://github.com/rtk-ai/vox/compare/v0.16.0...v0.17.0) (2026-10-05)
 
 
