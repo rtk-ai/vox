@@ -461,7 +461,8 @@ pub fn handle_start(idle_timeout: u64) -> Result<()> {
     }
     let logged = opened.is_ok();
     let stderr = opened.map_or_else(|_| Stdio::null(), Stdio::from);
-    let child = std::process::Command::new(exe)
+    let mut command = std::process::Command::new(exe);
+    command
         .args([
             "daemon",
             "_run",
@@ -470,9 +471,9 @@ pub fn handle_start(idle_timeout: u64) -> Result<()> {
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(stderr)
-        .spawn()
-        .context("failed to spawn daemon process")?;
+        .stderr(stderr);
+    detach_from_caller(&mut command);
+    let child = command.spawn().context("failed to spawn daemon process")?;
 
     println!(
         "Daemon starting (pid {}, port {})...",
@@ -492,6 +493,52 @@ pub fn handle_start(idle_timeout: u64) -> Result<()> {
     let said = logged.then(|| std::fs::read_to_string(&log).unwrap_or_default());
     anyhow::bail!("{}", start_failure(said.as_deref(), &log))
 }
+
+/// Keep the daemon from holding on to whoever started it.
+///
+/// On Windows a child inherits every inheritable handle of its parent, not
+/// only the three it is given. `vox daemon start` itself received its
+/// standard handles from its caller, so the daemon kept the caller's pipes
+/// open for as long as it lived: a script or an agent reading the output of
+/// `vox daemon start` waited until the daemon stopped. The standard handles of
+/// this process are marked non-inheritable before the spawn, and the daemon
+/// gets no console and its own process group, so closing the caller's window
+/// or pressing Ctrl+C there does not take it down.
+#[cfg(windows)]
+fn detach_from_caller(command: &mut std::process::Command) {
+    use std::ffi::c_void;
+    use std::os::windows::process::CommandExt;
+
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const HANDLE_FLAG_INHERIT: u32 = 0x0000_0001;
+    // STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+    const STANDARD_HANDLES: [u32; 3] = [-10i32 as u32, -11i32 as u32, -12i32 as u32];
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(which: u32) -> *mut c_void;
+        fn SetHandleInformation(handle: *mut c_void, mask: u32, flags: u32) -> i32;
+    }
+
+    for which in STANDARD_HANDLES {
+        // SAFETY: GetStdHandle takes no pointer and returns a handle owned by
+        // the process, null or INVALID_HANDLE_VALUE when there is none.
+        // SetHandleInformation only changes a flag on that handle; a failure
+        // (a console handle on old systems) leaves it as it was.
+        unsafe {
+            let handle = GetStdHandle(which);
+            if !handle.is_null() && handle as isize != -1 {
+                SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
+    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+}
+
+/// Unix gives a child only the descriptors it is handed: nothing to do.
+#[cfg(not(windows))]
+fn detach_from_caller(_command: &mut std::process::Command) {}
 
 /// What a failed start reports. `said` is the daemon's log, `None` when the
 /// log could not be opened: the message must not then send the reader to a

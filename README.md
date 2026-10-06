@@ -114,18 +114,60 @@ process.
 
 `VOX_TIMINGS=1` prints the time of each step of an utterance on stderr.
 
-The other backends have not been measured again. The figures below are older.
-They are end-to-end times for one sentence of about 50 characters (model load,
-synthesis and playback) on an M2 Pro using the CPU:
+### Generation time
+
+Time of a whole `vox -o file.wav "..."` command: process start, model loaded
+from disk, synthesis, file written. Nothing is played, so the figures do not
+depend on an audio device. Measured in October 2026 with the v0.17.0 release
+binaries, each command in a new process, models already downloaded. Each figure
+is the median of 5 runs (3 for `qwen-native`) after one run that is not counted.
+
+| | macOS, Metal build | Linux, CPU build | Linux, CUDA build | Windows |
+|---|---:|---:|---:|---:|
+| `pocket`, English, one sentence (about 3 s of audio) | 0.8 s | 3.7 s | 3.8 s | 2.5 s |
+| `pocket`, English, four sentences (about 14 s) | 3.3 s | 13.5 s | 13.3 s | 9.5 s |
+| `piper`, French, one sentence (about 2.6 s) | 0.6 s | 1.2 s | 1.2 s | 1.6 s |
+| `piper`, French, four sentences (about 13 s) | 1.6 s | 2.2 s | 2.2 s | 2.5 s |
+| `qwen-native`, cloned voice, one sentence (about 2.4 s) | 31 s | 56 s | 8.7 s | 46 s |
+| Whisper `base` (`vox hear --file`), 13.8 s of audio | 1.7 s | 15.1 s | 1.1 s | 5.6 s |
+
+- macOS: Apple A18 Pro laptop, 8 GB, macOS 27.
+- Linux: Ubuntu 26.04 under WSL2 on an Intel Core i7-8700 (6 cores) with an
+  RTX 4070 Ti SUPER (16 GB).
+- Windows: Windows 11 on that same machine. There is one Windows build and it
+  uses the CPU. The commands were started from WSL, which adds about 50 ms to
+  each.
+
+What the figures show:
+
+- `pocket` and `piper` take the same time in the CPU and the CUDA build: they
+  run on the CPU in both.
+- The CUDA build is what makes `qwen-native` and Whisper fast on Linux: 6 times
+  and 14 times faster here than the CPU build.
+- `pocket` generates about as fast as it plays on this Linux machine, and four
+  times faster on the Mac. It plays while it generates, so the sound starts
+  long before the times above; see Time to first sound.
+- On the same processor, the CPU build is slower under WSL2 than the Windows
+  build for `pocket`, `qwen-native` and Whisper, and faster for `piper`. We
+  have not looked into why.
+- The first `qwen-native` call after a download took longer: 83 s on Linux
+  with the CPU build, 98 s on Windows, 9 s with the CUDA build.
+
+The cloned voice used a 13.8 s reference recording at 24 kHz with its
+transcription.
+Linux on ARM64 has not been measured.
+
+The minimum and maximum of each figure, the first-call times, the texts used
+and what was not measured are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+`say` and `kokoro` have not been measured again. The figures below are older:
+end-to-end times for one sentence of about 50 characters (model load, synthesis
+and playback) on an M2 Pro using the CPU.
 
 | Backend | Time |
 |---------|------|
 | `say` | 3 s |
-| `qwen-native` | 11 min 33 s for the first call; about 3 s with the model already loaded by the daemon |
 | `kokoro` | under 1 s |
-
-On a machine with an RTX 4070 Ti SUPER (16 GB), `qwen-native` took 48 s; that
-figure was recorded as a CPU run.
 
 ## Install
 
@@ -601,6 +643,7 @@ These documents are written in French.
 | [Architecture](docs/ARCHITECTURE.md) | Technical architecture, backends, DB schema, MCP protocol, security |
 | [Features](docs/FEATURES.md) | All commands and features documented |
 | [Guide](docs/GUIDE.md) | Installation, quick start, troubleshooting |
+| [Benchmarks](docs/BENCHMARKS.md) | Generation and transcription times on macOS, Linux and Windows, with the method |
 
 ## License
 
